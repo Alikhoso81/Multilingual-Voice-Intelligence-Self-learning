@@ -44,6 +44,10 @@ services:
         condition: service_started
     volumes:
       - ../backend:/code
+      - whisper_model_cache:/root/.cache/huggingface
+      - vip_audio_storage:/code/storage/audio
 
 volumes:
   vip_pg_data:
+  whisper_model_cache:
+  vip_audio_storage:

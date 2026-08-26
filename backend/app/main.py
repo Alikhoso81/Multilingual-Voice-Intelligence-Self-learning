@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1 import auth, organizations, users
+from app.api.v1 import auth, conversations, organizations, users
 from app.core.config import settings
 
 app = FastAPI(title=settings.PROJECT_NAME, openapi_url=f"{settings.API_V1_PREFIX}/openapi.json")
@@ -17,6 +17,7 @@ app.add_middleware(
 app.include_router(organizations.router, prefix=settings.API_V1_PREFIX)
 app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
 app.include_router(users.router, prefix=settings.API_V1_PREFIX)
+app.include_router(conversations.router, prefix=settings.API_V1_PREFIX)
 
 
 @app.get("/health", tags=["health"])

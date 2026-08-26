@@ -45,7 +45,45 @@ exit
 - pgvector-enabled Postgres image so Phase 3 (RAG) doesn't need a DB migration to add vector support.
 - docker-compose bringing up db + redis + backend together.
 
-## Not in Phase 1 (coming in later phases)
+## What's in Phase 2 — Voice → Text + Language Detection
 
-Conversations/messages, voice, intents, RAG, clustering, analytics, admin dashboard UI —
-per the roadmap, these land in Phases 2–10.
+- `Conversation`, `Message`, `VoiceRecording` models.
+- `POST /api/v1/conversations` — start a conversation (text or voice channel).
+- `POST /api/v1/conversations/{id}/messages/text` — send a typed message; runs language
+  detection + normalization even on typed text (useful for testing without audio files).
+- `POST /api/v1/conversations/{id}/messages/voice` — upload an audio file (wav/mp3/m4a/ogg);
+  transcribes with Faster-Whisper, detects language, normalizes, stores everything.
+- `GET /api/v1/conversations/{id}` — view full transcript.
+- Language detection distinguishes English / Urdu / Roman Urdu / Mixed — tested against
+  the exact example sentences from the project spec, all passing.
+- Cross-organization isolation: users can only see conversations in their own organization.
+
+### Try Phase 2 in the browser (`/docs`)
+
+1. `POST /conversations` with `{"channel": "text"}` (needs your Bearer token from Phase 1 login).
+2. `POST /conversations/{id}/messages/text` with e.g.
+   `{"text": "Mera internet package activate kyun nahi ho raha?"}` — check the response:
+   `language` should be `"roman-ur"`.
+3. For voice: `POST /conversations/{id}/messages/voice`, upload a short `.wav`/`.mp3` file
+   recording yourself speaking English, Urdu, or Roman Urdu.
+
+### Important notes on Phase 2
+
+- **First voice request will be slow.** Faster-Whisper downloads its model (~500MB for the
+  default "small" size) the first time it's used inside the container. This can take a few
+  minutes depending on your internet. Subsequent requests are fast — the model is cached in a
+  Docker volume (`whisper_model_cache`) so it survives container restarts.
+- **No GPU needed for testing**, but CPU transcription of longer audio will be slower than
+  real-time. For a short test clip (a few seconds) this is fine.
+- **I could not test the actual Whisper transcription in my own environment** (no audio file /
+  no model download available there) — I verified: the code imports correctly, all routes
+  register, and the full text-message pipeline (language detection → normalization → storage →
+  retrieval) works end-to-end against real Postgres. **Please test the actual voice upload
+  yourself** and paste me any error you hit — I'll fix it immediately, same as the earlier bugs.
+- If `WHISPER_MODEL_SIZE=small` is too slow on your machine, add `WHISPER_MODEL_SIZE=tiny` or
+  `WHISPER_MODEL_SIZE=base` to your `.env` file (faster, less accurate) — no code change needed.
+
+## Not in Phase 1/2 (coming in later phases)
+
+Intent classification, RAG, clustering, analytics, admin dashboard UI — per the roadmap, these
+land in Phases 3–10.
