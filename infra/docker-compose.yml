@@ -1,0 +1,49 @@
+version: "3.9"
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: vip_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: vip_user
+      POSTGRES_PASSWORD: vip_pass
+      POSTGRES_DB: vip_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - vip_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vip_user -d vip_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: vip_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  backend:
+    build:
+      context: ../backend
+    container_name: vip_backend
+    restart: unless-stopped
+    env_file:
+      - ../backend/.env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://vip_user:vip_pass@db:5432/vip_db
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - ../backend:/code
+
+volumes:
+  vip_pg_data:
