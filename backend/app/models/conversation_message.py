@@ -43,6 +43,9 @@ class Message(Base, UUIDMixin, TimestampMixin):
     voice_recording: Mapped["VoiceRecording | None"] = relationship(
         back_populates="message", uselist=False
     )
+    sources: Mapped[list["MessageSource"]] = relationship(
+        back_populates="message", cascade="all, delete-orphan", order_by="MessageSource.rank"
+    )
 
 
 class VoiceRecording(Base, UUIDMixin, TimestampMixin):
