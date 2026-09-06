@@ -16,8 +16,8 @@ knowledge before it becomes retrievable.
 | 2 | Voice→text + language detection/normalization | ✅ code done (voice upload not yet user-tested) |
 | 3 | Document ingestion + pgvector + RAG retrieval | ✅ verified end-to-end (Neon + real embeddings) |
 | 4 | LLM grounded answer generation + refusal behavior | ✅ verified end-to-end (Gemini + Neon, all 3 languages) |
-| 5 | Intent classification + entity extraction | ⬜ next |
-| 6 | TTS voice response | ⬜ |
+| 5 | Intent classification + entity extraction | ✅ verified end-to-end (Gemini) |
+| 6 | TTS voice response | ⬜ next |
 | 7 | Conversation analytics (summary/sentiment/resolution) | ⬜ |
 | 8 | Question clustering + knowledge-gap detection + learning center | ⬜ |
 | 9 | Full admin + agent dashboards | ⬜ |
@@ -236,3 +236,30 @@ instead: `uv pip install --python .venv anthropic`, then set `LLM_PROVIDER=anthr
   - Urdu: *"میں اپنا نمبر ACME پر کیسے پورٹ کروں؟"* → *"667 پر PORT لکھ کر SMS بھیجیں۔ آپ کا نمبر 48 گھنٹوں میں پورٹ ہو جائے گا۔"* (sim 0.85)
   - Out of scope: *"Do you sell iPhones on installment?"* → sim 0.73 < 0.78 → human-handoff, LLM not called.
 - Also verified 21/21 with `LLM_PROVIDER=mock` (no key needed — for CI / offline).
+
+## What's in Phase 5 — Intent classification + entity extraction
+
+Every customer message (text or voice) is now classified before the reply is generated.
+
+- `app/services/nlu/intent.py` — one LLM call → `{intent, confidence, entities}`, via the
+  same pluggable provider as Phase 4.
+- `messages.intent` (`billing` / `technical_support` / `account_management` / `complaint` /
+  `sales_inquiry` / `general_inquiry` / `other` / `unknown`), `messages.intent_confidence`,
+  `messages.entities` (JSONB — `phone_numbers`, `amounts`, `package_or_product_names`,
+  `dates_or_times`, `account_or_order_ids`, `locations`).
+- `MessageOut` now carries these; system/assistant messages leave them null/empty.
+- Classification failing (LLM down, rate-limited, bad JSON) logs a warning and stores
+  `intent=unknown` — it never blocks the conversation.
+
+### Verification status
+
+- ✅ **Verified 2026-09-06** with `gemini-2.5-flash` — `scripts/verify_phase5.py` 20/20.
+  Examples:
+  - *"Why is my bill so high? I was charged 5000 rupees extra"* → `billing`, amounts `["5000 rupees"]`
+  - *"I want to cancel the SIM for number 03001234567"* → `account_management`, phone_numbers `["03001234567"]`
+  - *"I paid Rs. 2500 on 3rd January for the Super Weekly bundle ... account AC-99812"* →
+    `billing`, amounts `["rs. 2500"]`, dates `["3rd january"]`, packages `["super weekly bundle"]`, ids `["ac-99812"]`
+  - *"mujhe apna Lahore wala connection band karwana hai, number 0321-9998877"* →
+    `account_management`, phone_numbers `["0321-9998877"]`, locations `["lahore"]`
+- On the Gemini free tier, firing many messages back to back can hit the rate limit — those
+  messages get `intent=unknown` (logged) rather than an error.
