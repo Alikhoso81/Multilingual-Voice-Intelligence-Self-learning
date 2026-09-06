@@ -21,6 +21,7 @@ from app.schemas.conversation import (
     TextMessageCreate,
 )
 from app.services.llm.answering import GroundedAnswer, generate_grounded_answer
+from app.services.nlu.intent import IntentResult, classify_message
 from app.services.speech.language_utils import detect_language, normalize_text
 from app.services.speech.whisper_service import transcribe_audio
 
@@ -68,27 +69,25 @@ def send_text_message(
     current_user: User = Depends(get_current_user),
 ) -> MessageExchangeOut:
     """
-    Store a typed customer message, then (Phase 4) retrieve relevant knowledge and
-    generate a grounded assistant reply — or a human-handoff message if retrieval
+    Store a typed customer message (with intent + entities), then generate a
+    grounded assistant reply — or a human-handoff message if retrieval
     confidence is below the threshold. Returns both messages.
     """
-    conversation = _get_owned_conversation(db, conversation_id, current_user)
+    conv_id, org_id = _owned_conversation_ids(db, conversation_id, current_user)
 
     language = detect_language(payload.text)
-    customer_message = Message(
-        conversation_id=conversation.id,
-        role=MessageRole.customer,
-        raw_text=payload.text,
-        normalized_text=normalize_text(payload.text, language),
-        language=language,
-        asr_confidence=None,  # not applicable to typed text
-    )
-    db.add(customer_message)
-    db.commit()
-    db.refresh(customer_message)
+    normalized = normalize_text(payload.text, language)
+    query_text = normalized or payload.text
 
-    assistant_message, answer = _generate_assistant_reply(db, conversation, customer_message)
-    return _build_exchange(customer_message, assistant_message, answer)
+    # Both LLM calls happen before the write transaction so no DB connection is
+    # pinned during them.
+    nlu = classify_message(query_text, language)
+    answer = generate_grounded_answer(db, org_id, query_text, language)
+
+    customer_message = _new_customer_message(
+        conv_id, raw_text=payload.text, normalized=normalized, language=language, nlu=nlu
+    )
+    return _persist_exchange(db, conv_id, customer_message, answer)
 
 
 @router.post(
@@ -103,11 +102,11 @@ async def send_voice_message(
     current_user: User = Depends(get_current_user),
 ) -> MessageExchangeOut:
     """
-    Accept an audio file, transcribe it with Faster-Whisper, detect language and
-    normalize, store the customer message + audio reference, then generate a
-    grounded assistant reply (same pipeline as the text endpoint).
+    Transcribe an audio file with Faster-Whisper, detect language, classify
+    intent + entities, store the customer message + audio reference, then
+    generate a grounded assistant reply (same pipeline as the text endpoint).
     """
-    conversation = _get_owned_conversation(db, conversation_id, current_user)
+    conv_id, org_id = _owned_conversation_ids(db, conversation_id, current_user)
 
     if not audio.filename:
         raise HTTPException(status_code=400, detail="No audio file provided")
@@ -130,16 +129,22 @@ async def send_voice_message(
         )
 
     language = detect_language(result.text, whisper_language_hint=result.whisper_language)
-    customer_message = Message(
-        conversation_id=conversation.id,
-        role=MessageRole.customer,
+    normalized = normalize_text(result.text, language)
+    query_text = normalized or result.text
+
+    nlu = classify_message(query_text, language)
+    answer = generate_grounded_answer(db, org_id, query_text, language)
+
+    customer_message = _new_customer_message(
+        conv_id,
         raw_text=result.text,
-        normalized_text=normalize_text(result.text, language),
+        normalized=normalized,
         language=language,
+        nlu=nlu,
         asr_confidence=result.avg_logprob_confidence,
     )
     db.add(customer_message)
-    db.flush()  # need message.id for the voice_recording row
+    db.flush()
     db.add(
         VoiceRecording(
             message_id=customer_message.id,
@@ -147,28 +152,49 @@ async def send_voice_message(
             duration_seconds=result.duration_seconds,
         )
     )
-    db.commit()
-    db.refresh(customer_message)
-
-    assistant_message, answer = _generate_assistant_reply(db, conversation, customer_message)
-    return _build_exchange(customer_message, assistant_message, answer)
+    return _persist_exchange(db, conv_id, customer_message, answer, already_added=True)
 
 
-def _generate_assistant_reply(
-    db: Session, conversation: Conversation, customer_message: Message
-) -> tuple[Message, GroundedAnswer]:
-    query_text = customer_message.normalized_text or customer_message.raw_text or ""
-    answer = generate_grounded_answer(
-        db, conversation.organization_id, query_text, customer_message.language
+def _new_customer_message(
+    conversation_id: uuid.UUID,
+    *,
+    raw_text: str,
+    normalized: str,
+    language,
+    nlu: IntentResult,
+    asr_confidence: float | None = None,
+) -> Message:
+    return Message(
+        conversation_id=conversation_id,
+        role=MessageRole.customer,
+        raw_text=raw_text,
+        normalized_text=normalized,
+        language=language,
+        asr_confidence=asr_confidence,
+        intent=nlu.intent,
+        intent_confidence=nlu.confidence,
+        entities=nlu.entities,
     )
 
+
+def _persist_exchange(
+    db: Session,
+    conversation_id: uuid.UUID,
+    customer_message: Message,
+    answer: GroundedAnswer,
+    *,
+    already_added: bool = False,
+) -> MessageExchangeOut:
+    if not already_added:
+        db.add(customer_message)
+        db.flush()
+
     assistant_message = Message(
-        conversation_id=conversation.id,
+        conversation_id=conversation_id,
         role=MessageRole.system,
         raw_text=answer.text,
         normalized_text=None,
         language=answer.language,
-        asr_confidence=None,
     )
     db.add(assistant_message)
     db.flush()
@@ -182,13 +208,9 @@ def _generate_assistant_reply(
             )
         )
     db.commit()
+    db.refresh(customer_message)
     db.refresh(assistant_message)
-    return assistant_message, answer
 
-
-def _build_exchange(
-    customer_message: Message, assistant_message: Message, answer: GroundedAnswer
-) -> MessageExchangeOut:
     return MessageExchangeOut(
         customer_message=MessageOut.model_validate(customer_message),
         assistant_message=AssistantMessageOut(
@@ -210,6 +232,15 @@ def _build_exchange(
             ],
         ),
     )
+
+
+def _owned_conversation_ids(
+    db: Session, conversation_id: uuid.UUID, current_user: User
+) -> tuple[uuid.UUID, uuid.UUID]:
+    conversation = _get_owned_conversation(db, conversation_id, current_user)
+    conv_id, org_id = conversation.id, conversation.organization_id
+    db.rollback()  # release the connection during the LLM calls that follow
+    return conv_id, org_id
 
 
 def _get_owned_conversation(

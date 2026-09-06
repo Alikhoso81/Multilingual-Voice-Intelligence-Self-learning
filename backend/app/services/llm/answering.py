@@ -14,6 +14,7 @@ network must never produce a fabricated answer.
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass, field
 
@@ -25,6 +26,8 @@ from app.services.llm import LLMError, get_llm_provider
 from app.services.rag.retrieval import RetrievedChunk, retrieve_relevant_chunks
 
 # reason codes — also useful for Phase 7/8 analytics
+logger = logging.getLogger(__name__)
+
 ANSWERED = "answered"
 NO_DOCUMENTS = "no_documents"
 LOW_CONFIDENCE = "low_confidence"
@@ -135,7 +138,8 @@ def generate_grounded_answer(
             system=SYSTEM_PROMPT.format(language=label),
             user=USER_TEMPLATE.format(context=context, language=label, question=question),
         )
-    except LLMError:
+    except LLMError as exc:
+        logger.warning("answer generation fell back to handoff — provider error: %s", exc)
         return _handoff(language, PROVIDER_ERROR, top_similarity)
 
     return GroundedAnswer(

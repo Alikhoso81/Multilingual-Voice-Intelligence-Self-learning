@@ -4,7 +4,7 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from app.models.conversation import ConversationChannel, ConversationStatus
-from app.models.conversation_message import DetectedLanguage, MessageRole
+from app.models.conversation_message import DetectedLanguage, MessageIntent, MessageRole
 
 
 class ConversationCreate(BaseModel):
@@ -19,6 +19,9 @@ class MessageOut(BaseModel):
     normalized_text: str | None
     language: DetectedLanguage
     asr_confidence: float | None
+    intent: MessageIntent | None
+    intent_confidence: float | None
+    entities: dict = {}
     created_at: datetime
 
     class Config:
