@@ -1,29 +1,58 @@
-# Phase 1 — Backend Skeleton
+# Multilingual Voice Intelligence & Self-Learning Knowledge Platform
 
-FastAPI + PostgreSQL(pgvector) + Redis + Docker + JWT auth + RBAC + core models
-(Organization, User, Customer).
+Enterprise customer-support AI that takes voice/text in **English, Urdu, Roman Urdu and
+mixed Urdu-English**, transcribes and language-detects it, answers from company documents
+via RAG (grounded, no hallucinations), detects knowledge gaps, and lets admins approve new
+knowledge before it becomes retrievable.
+
+**Stack:** Python + FastAPI · PostgreSQL + pgvector · Faster-Whisper (ASR) ·
+`multilingual-e5-large` embeddings · Claude API (LLM) · Redis + Celery · Docker.
+
+## Phase status
+
+| Phase | Scope | Status |
+|---|---|---|
+| 1 | Backend + DB + auth skeleton | ✅ done |
+| 2 | Voice→text + language detection/normalization | ✅ code done (voice upload not yet user-tested) |
+| 3 | Document ingestion + pgvector + RAG retrieval | ✅ code done — see "Running Phase 3" below |
+| 4 | LLM grounded answer generation + refusal behavior | ⬜ next |
+| 5 | Intent classification + entity extraction | ⬜ |
+| 6 | TTS voice response | ⬜ |
+| 7 | Conversation analytics (summary/sentiment/resolution) | ⬜ |
+| 8 | Question clustering + knowledge-gap detection + learning center | ⬜ |
+| 9 | Full admin + agent dashboards | ⬜ |
+| 10 | Security hardening, evaluation harness, deployment, benchmarking | ⬜ |
 
 ## Run it
 
 ```bash
 cd backend
-cp .env.example .env        # edit SECRET_KEY at minimum
+cp .env.example .env        # then edit .env: set a real SECRET_KEY (and ANTHROPIC_API_KEY from Phase 4)
 cd ../infra
 docker compose up --build
 ```
 
-Backend will be available at http://localhost:8000
-Interactive API docs: http://localhost:8000/docs
+Backend: http://localhost:8000 · Interactive API docs: http://localhost:8000/docs
 
-## Run the first migration
+## Run migrations
 
 Once containers are up, in a second terminal:
 
 ```bash
 docker exec -it vip_backend bash
-alembic revision --autogenerate -m "init: organizations, users, customers"
-alembic upgrade head
+alembic upgrade head          # applies the committed migration(s) — no autogenerate needed
 exit
+```
+
+The repo ships a single consolidated init migration covering the whole schema through
+Phase 3. If your dev database was created by an **older** migration and `alembic upgrade
+head` complains about a missing/!mismatched revision, reset the volume (dev data is
+disposable):
+
+```bash
+docker compose down -v        # drops the Postgres volume — also fixes leftover ENUM types
+docker compose up --build
+docker exec -it vip_backend bash -c "alembic upgrade head"
 ```
 
 ## Try it
@@ -87,3 +116,63 @@ exit
 
 Intent classification, RAG, clustering, analytics, admin dashboard UI — per the roadmap, these
 land in Phases 3–10.
+
+## What's in Phase 3 — Document Ingestion + pgvector + RAG Retrieval
+
+New files:
+- `app/models/knowledge.py` — `KnowledgeDocument`, `KnowledgeChunk` (with a real pgvector `Vector(1024)` column)
+- `app/services/rag/parsing.py` — extracts text from PDF/DOCX/TXT/CSV
+- `app/services/rag/chunking.py` — splits text into retrieval-sized, overlapping chunks
+- `app/services/rag/embeddings.py` — multilingual-e5-large embeddings (configurable via `EMBEDDING_MODEL_NAME`)
+- `app/services/rag/retrieval.py` — pgvector cosine similarity search
+- `app/schemas/knowledge.py`, `app/api/v1/knowledge.py` — upload/list/delete/search endpoints
+
+New endpoints:
+- `POST /api/v1/knowledge/documents` (admin only) — upload a PDF/DOCX/TXT/CSV, auto parsed+chunked+embedded
+- `GET /api/v1/knowledge/documents` — list your org's documents with chunk counts
+- `DELETE /api/v1/knowledge/documents/{id}` (admin only)
+- `POST /api/v1/knowledge/search` — test retrieval directly: `{"query": "...", "top_k": 5}`
+
+### Running Phase 3
+
+```bash
+cd infra
+docker compose down -v          # only if you have an old dev DB — see "Run migrations"
+docker compose up --build
+# second terminal:
+docker exec -it vip_backend bash -c "alembic upgrade head"
+```
+
+Then at http://localhost:8000/docs (log in first — reuse the Phase 1 flow to get a Bearer
+token for an **admin** user):
+
+1. `POST /api/v1/knowledge/documents` — upload a small `.txt` or `.pdf` (e.g. an FAQ).
+   First upload downloads the ~2.2 GB embedding model — expect several minutes once.
+2. `GET /api/v1/knowledge/documents` — confirm `status: "ready"` and `chunk_count > 0`.
+3. `POST /api/v1/knowledge/search` with `{"query": "<something from your doc>", "top_k": 5}`
+   — you should get chunks back ranked by `similarity`.
+
+### Verification status
+
+- Built and unit-tested by Claude (chat) in a sandbox with the embedding model **mocked**:
+  parsing (TXT/CSV/DOCX), chunking, cosine ranking, and the full HTTP flow (upload → store →
+  list → search, RBAC 403 for non-admins, 400 for unsupported types) all pass.
+- **Not yet run by the user** against a real Postgres + real embedding model. The migration
+  now explicitly enables the `vector` extension (this was missing and would have failed on a
+  fresh pgvector image). Treat Phase 3 as unverified until the steps above pass locally.
+
+### Setup notes for Phase 3
+
+1. `alembic/script.py.mako` always adds `import pgvector.sqlalchemy` to generated migrations,
+   so future vector-column autogenerates don't fail with `NameError: name 'pgvector' is not
+   defined`.
+2. **First document upload will be slow** — same as Whisper in Phase 2, `multilingual-e5-large`
+   (~2.2GB) downloads once on first use and is cached in a Docker volume after that.
+3. **If your machine is slow/low on resources**, add to `.env`:
+   `EMBEDDING_MODEL_NAME=intfloat/multilingual-e5-small` — but if you do this, you MUST also
+   change `EMBEDDING_DIM = 1024` to `384` in `app/models/knowledge.py` and regenerate the
+   migration, since the vector column width is fixed. Tell me if you want to do this and I'll
+   walk you through it.
+4. Storage volumes: I added `vip_document_storage` for uploaded documents to
+   `infra/docker-compose.yml`. The embedding model shares the same Hugging Face cache directory
+   as Faster-Whisper (`whisper_model_cache`), so no extra volume was needed there — already handled.
