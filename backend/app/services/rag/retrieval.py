@@ -31,8 +31,12 @@ def retrieve_relevant_chunks(
 ) -> list[RetrievedChunk]:
     query_vector = embed_query(query_text)
 
-    # cosine_distance returns 0 (identical) .. 2 (opposite); convert to a
-    # 0..1 similarity score that's more intuitive to threshold against.
+    # pgvector's <=> is cosine distance: 0 (identical) .. 2 (opposite).
+    # similarity = 1 - distance = plain cosine similarity in [-1, 1], clamped
+    # to [0, 1]. We report raw cosine (not a remapped score) because that's the
+    # number the confidence threshold is tuned against and the one every
+    # embedding-model doc quotes. Note multilingual-e5 runs "hot" — unrelated
+    # text still lands around 0.72-0.78, a real topical match around 0.80-0.88.
     distance_expr = KnowledgeChunk.embedding.cosine_distance(query_vector)
 
     stmt = (
@@ -49,7 +53,7 @@ def retrieve_relevant_chunks(
             chunk_id=chunk.id,
             document_id=chunk.document_id,
             text=chunk.text,
-            similarity=max(0.0, 1.0 - (distance / 2.0)),
+            similarity=max(0.0, min(1.0, 1.0 - distance)),
         )
         for chunk, distance in results
     ]
