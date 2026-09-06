@@ -38,3 +38,30 @@ class ConversationOut(BaseModel):
 
 class TextMessageCreate(BaseModel):
     text: str
+
+
+class MessageSourceOut(BaseModel):
+    chunk_id: uuid.UUID
+    document_id: uuid.UUID
+    similarity: float
+
+
+class AssistantMessageOut(BaseModel):
+    id: uuid.UUID
+    role: MessageRole
+    raw_text: str | None
+    language: DetectedLanguage
+    created_at: datetime
+    answered: bool
+    reason: str
+    provider: str
+    model: str | None
+    top_similarity: float
+    sources: list[MessageSourceOut] = []
+
+
+class MessageExchangeOut(BaseModel):
+    """A customer message and the assistant reply it triggered."""
+
+    customer_message: MessageOut
+    assistant_message: AssistantMessageOut
