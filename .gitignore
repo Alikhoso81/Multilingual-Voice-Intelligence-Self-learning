@@ -1,0 +1,41 @@
+# Environment / secrets
+.env
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+env/
+.pytest_cache/
+.mypy_cache/
+
+# Local model / data caches (downloaded at runtime, never committed)
+backend/storage/audio/*
+!backend/storage/audio/.gitkeep
+backend/storage/documents/*
+!backend/storage/documents/.gitkeep
+*.pt
+*.bin
+*.onnx
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Databases
+*.db
+*.sqlite3
+
+# Logs
+*.log
+
+# Unrelated content accidentally placed in the project folder
+claude-code-apple-skills-main/
