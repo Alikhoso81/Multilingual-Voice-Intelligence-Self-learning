@@ -1,31 +1,40 @@
 import shutil
 import uuid
+from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.deps import get_current_user, get_db
+from app.core.deps import get_current_user, get_db, require_roles
 from app.models.conversation import Conversation
 from app.models.conversation_message import Message, MessageRole, VoiceRecording
 from app.models.message_source import MessageSource
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.conversation import (
     AssistantMessageOut,
+    ConversationAnalysisOut,
     ConversationCreate,
     ConversationOut,
+    ConversationStatusUpdate,
+    ConversationSummaryOut,
     MessageExchangeOut,
     MessageOut,
     MessageSourceOut,
     TextMessageCreate,
 )
+from app.services.analytics.conversation import analyze_conversation, render_transcript
 from app.services.llm.answering import GroundedAnswer, generate_grounded_answer
 from app.services.nlu.intent import IntentResult, classify_message
 from app.services.speech.language_utils import detect_language, normalize_text
 from app.services.speech.whisper_service import transcribe_audio
 from app.services.tts.synthesis import synthesize_reply
+
+STAFF = require_roles(UserRole.admin, UserRole.agent)
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
@@ -50,13 +59,105 @@ def create_conversation(
     return conversation
 
 
+@router.get("", response_model=list[ConversationSummaryOut])
+def list_conversations(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(STAFF),
+    limit: int = 50,
+    offset: int = 0,
+) -> list[ConversationSummaryOut]:
+    """Staff-only: the org's conversations for the dashboard (no message bodies)."""
+    limit = max(1, min(limit, 200))
+    counts = dict(
+        db.query(Message.conversation_id, func.count(Message.id))
+        .join(Conversation, Conversation.id == Message.conversation_id)
+        .filter(Conversation.organization_id == current_user.organization_id)
+        .group_by(Message.conversation_id)
+        .all()
+    )
+    rows = (
+        db.query(Conversation)
+        .filter(Conversation.organization_id == current_user.organization_id)
+        .order_by(Conversation.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+        .all()
+    )
+    return [
+        ConversationSummaryOut(
+            id=c.id,
+            channel=c.channel,
+            status=c.status,
+            summary=c.summary,
+            sentiment=c.sentiment,
+            resolution=c.resolution,
+            follow_up=c.follow_up,
+            message_count=counts.get(c.id, 0),
+            analyzed_at=c.analyzed_at,
+            created_at=c.created_at,
+        )
+        for c in rows
+    ]
+
+
+@router.patch("/{conversation_id}", response_model=ConversationOut)
+def update_conversation_status(
+    conversation_id: uuid.UUID,
+    payload: ConversationStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(STAFF),
+) -> ConversationOut:
+    conversation = _get_owned_conversation(db, conversation_id, current_user)
+    conversation.status = payload.status
+    db.commit()
+    return _conversation_out(conversation)
+
+
+@router.post("/{conversation_id}/analyze", response_model=ConversationAnalysisOut)
+def analyze(
+    conversation_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(STAFF),
+) -> ConversationAnalysisOut:
+    """Staff-only: run summary + sentiment + resolution analysis over the transcript."""
+    conversation = _get_owned_conversation(db, conversation_id, current_user)
+    messages = list(conversation.messages)
+    intent_breakdown = Counter(
+        m.intent.value for m in messages if m.role == MessageRole.customer and m.intent
+    )
+    transcript = render_transcript(messages)
+    db.rollback()  # release the connection during the LLM call
+
+    analysis = analyze_conversation(transcript)
+    if analysis.ok:
+        conversation = _get_owned_conversation(db, conversation_id, current_user)
+        conversation.summary = analysis.summary
+        conversation.sentiment = analysis.sentiment
+        conversation.resolution = analysis.resolution
+        conversation.follow_up = analysis.follow_up
+        conversation.analyzed_at = datetime.now(timezone.utc)
+        db.commit()
+
+    return ConversationAnalysisOut(
+        analyzed=analysis.ok,
+        summary=analysis.summary,
+        sentiment=analysis.sentiment,
+        resolution=analysis.resolution,
+        follow_up=analysis.follow_up,
+        intent_breakdown=dict(intent_breakdown),
+    )
+
+
 @router.get("/{conversation_id}", response_model=ConversationOut)
 def get_conversation(
     conversation_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ConversationOut:
-    conversation = _get_owned_conversation(db, conversation_id, current_user)
+    return _conversation_out(_get_owned_conversation(db, conversation_id, current_user))
+
+
+def _conversation_out(conversation: Conversation) -> ConversationOut:
     messages = []
     for m in conversation.messages:
         out = MessageOut.model_validate(m)
@@ -68,6 +169,10 @@ def get_conversation(
         channel=conversation.channel,
         status=conversation.status,
         summary=conversation.summary,
+        sentiment=conversation.sentiment,
+        resolution=conversation.resolution,
+        follow_up=conversation.follow_up,
+        analyzed_at=conversation.analyzed_at,
         messages=messages,
     )
 
