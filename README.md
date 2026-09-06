@@ -6,7 +6,7 @@ via RAG (grounded, no hallucinations), detects knowledge gaps, and lets admins a
 knowledge before it becomes retrievable.
 
 **Stack:** Python + FastAPI · PostgreSQL + pgvector · Faster-Whisper (ASR) ·
-`multilingual-e5-large` embeddings · Claude API (LLM) · Redis + Celery · Docker.
+`multilingual-e5-large` embeddings · pluggable LLM (Gemini / Claude) · Redis + Celery · Docker.
 
 ## Phase status
 
@@ -15,8 +15,8 @@ knowledge before it becomes retrievable.
 | 1 | Backend + DB + auth skeleton | ✅ done |
 | 2 | Voice→text + language detection/normalization | ✅ code done (voice upload not yet user-tested) |
 | 3 | Document ingestion + pgvector + RAG retrieval | ✅ verified end-to-end (Neon + real embeddings) |
-| 4 | LLM grounded answer generation + refusal behavior | ⬜ next |
-| 5 | Intent classification + entity extraction | ⬜ |
+| 4 | LLM grounded answer generation + refusal behavior | ✅ pipeline verified (mock provider); pending a real API-key run |
+| 5 | Intent classification + entity extraction | ⬜ next |
 | 6 | TTS voice response | ⬜ |
 | 7 | Conversation analytics (summary/sentiment/resolution) | ⬜ |
 | 8 | Question clustering + knowledge-gap detection + learning center | ⬜ |
@@ -186,3 +186,53 @@ The first upload downloads `multilingual-e5-large` (~2.2 GB) — one time, then 
 4. Storage volumes: I added `vip_document_storage` for uploaded documents to
    `infra/docker-compose.yml`. The embedding model shares the same Hugging Face cache directory
    as Faster-Whisper (`whisper_model_cache`), so no extra volume was needed there — already handled.
+
+## What's in Phase 4 — LLM grounded answer generation + refusal
+
+When a customer sends a message (text **or** voice), the system now retrieves relevant
+knowledge chunks and generates a grounded reply — or refuses.
+
+New files:
+- `app/services/llm/` — a provider-agnostic `LLMProvider` interface with `google`
+  (Gemini, default), `anthropic` (Claude), and `mock` (offline) implementations, chosen by
+  `LLM_PROVIDER`. `answering.py` holds the retrieve → threshold → prompt → generate logic.
+- `app/models/message_source.py` — `MessageSource`: which chunk grounded which answer
+  (similarity + rank). The spec's answer-traceability requirement.
+
+Behaviour:
+- `POST /api/v1/conversations/{id}/messages/text` and `.../messages/voice` now return
+  `{ customer_message, assistant_message }`. The assistant message is a `role=system`
+  `Message`; `assistant_message` also carries `answered`, `reason`, `provider`, `model`,
+  `top_similarity`, and `sources[]`.
+- **No hallucinated answers**: if the best retrieval similarity is below
+  `RAG_CONFIDENCE_THRESHOLD` (0.78), or there are no documents, or the LLM call fails, the
+  reply is a fixed human-handoff message ("let me connect you with a support
+  representative") — the LLM is never called. `reason` is `low_confidence` /
+  `no_documents` / `provider_error` vs `answered`.
+- The reply is generated in the customer's detected language (English / Urdu / Roman Urdu).
+- The LLM only ever sees the retrieved chunks as context, with instructions to answer from
+  them alone.
+
+### Configure the LLM
+
+```bash
+# in backend/.env
+LLM_PROVIDER=google
+GOOGLE_API_KEY=<from https://aistudio.google.com/apikey>
+GEMINI_MODEL=gemini-2.5-flash
+```
+
+The Gemini API's free tier is generous for `gemini-2.5-flash` and is **separate** from a
+Google AI Pro/Ultra subscription (that powers the Gemini app, not the API). To use Claude
+instead: `uv pip install --python .venv anthropic`, then set `LLM_PROVIDER=anthropic` and
+`ANTHROPIC_API_KEY`.
+
+### Verification status
+
+- ✅ Pipeline verified 2026-09-06 with `LLM_PROVIDER=mock` (no key) —
+  `scripts/verify_phase4.py`, 21/21: in-KB question → `answered=True` grounded in real
+  chunks with `MessageSource` rows persisted; out-of-KB question → `answered=False` +
+  handoff + no sources; language propagates; transcript shows both turns; an org with no
+  documents always gets a handoff; `401` without a token.
+- ⬜ Pending: a run with a real `GOOGLE_API_KEY` to confirm Gemini answer quality and that
+  replies come back in the customer's language.
