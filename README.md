@@ -17,8 +17,8 @@ knowledge before it becomes retrievable.
 | 3 | Document ingestion + pgvector + RAG retrieval | ✅ verified end-to-end (Neon + real embeddings) |
 | 4 | LLM grounded answer generation + refusal behavior | ✅ verified end-to-end (Gemini + Neon, all 3 languages) |
 | 5 | Intent classification + entity extraction | ✅ verified end-to-end (Gemini) |
-| 6 | TTS voice response | ⬜ next |
-| 7 | Conversation analytics (summary/sentiment/resolution) | ⬜ |
+| 6 | TTS voice response | ✅ verified (mock 10/10; real Gemini TTS confirmed) |
+| 7 | Conversation analytics (summary/sentiment/resolution) | ⬜ next |
 | 8 | Question clustering + knowledge-gap detection + learning center | ⬜ |
 | 9 | Full admin + agent dashboards | ⬜ |
 | 10 | Security hardening, evaluation harness, deployment, benchmarking | ⬜ |
@@ -263,3 +263,32 @@ Every customer message (text or voice) is now classified before the reply is gen
     `account_management`, phone_numbers `["0321-9998877"]`, locations `["lahore"]`
 - On the Gemini free tier, firing many messages back to back can hit the rate limit — those
   messages get `intent=unknown` (logged) rather than an error.
+
+> **Gemini free-tier quota.** A Gemini API project with **no billing account linked** is
+> capped at ~20 `gemini-2.5-flash` requests **per day**. Each customer message is 2–3 calls
+> (classify + answer + optional TTS), so ~6 messages/day exhausts it and everything degrades
+> to handoff / `unknown` (never an error). Fix: link a billing account in
+> [AI Studio](https://aistudio.google.com/) — flash is ~$0.10 / 1M input tokens, so real
+> usage for this project costs cents — or run with `LLM_PROVIDER=mock` / `TTS_PROVIDER=mock`
+> for pipeline testing.
+
+## What's in Phase 6 — TTS voice response
+
+The assistant reply can now come back as speech.
+
+- `app/services/tts/` — a `TTSProvider` interface (`google` = `gemini-2.5-flash-preview-tts`
+  via the existing `GOOGLE_API_KEY`; `mock` = silent WAV). Gemini returns raw PCM; we wrap it
+  in a WAV container. A per-language delivery instruction makes Roman Urdu come out as spoken
+  Urdu, not spelled-out English.
+- `POST /conversations/{id}/messages/voice` synthesizes the reply automatically (voice in →
+  voice out); `POST .../messages/text/spoken` does the same for a typed message.
+- `GET /conversations/{id}/messages/{message_id}/audio` returns the WAV — the customer's
+  upload for their own messages, a synthesized-and-cached WAV for assistant replies.
+- `audio_url` appears on `MessageOut` / `AssistantMessageOut` and in the transcript.
+
+### Verification status
+
+- ✅ **Verified 2026-09-06** — `scripts/verify_phase6.py` 10/10 with `TTS_PROVIDER=mock`
+  (audio_url wiring, valid `RIFF/WAVE` bodies, on-demand synthesis, transcript, 404/401).
+- Real `gemini-2.5-flash-preview-tts` confirmed producing 6–7 s, 24 kHz WAVs for English and
+  Roman Urdu replies before the daily quota (above) cut testing short.
