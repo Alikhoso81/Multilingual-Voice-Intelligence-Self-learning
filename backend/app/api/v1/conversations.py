@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.deps import get_current_user, get_db
 from app.models.conversation import Conversation
 from app.models.conversation_message import Message, MessageRole, VoiceRecording
@@ -20,7 +21,7 @@ from app.services.speech.whisper_service import transcribe_audio
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
-AUDIO_STORAGE_DIR = Path("/code/storage/audio")
+AUDIO_STORAGE_DIR = settings.audio_storage_dir
 AUDIO_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 

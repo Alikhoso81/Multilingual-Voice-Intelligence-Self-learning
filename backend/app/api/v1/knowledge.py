@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.deps import get_current_user, get_db, require_roles
 from app.models.knowledge import (
     DocumentStatus,
@@ -21,7 +22,7 @@ from app.services.rag.retrieval import retrieve_relevant_chunks
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
-DOCUMENT_STORAGE_DIR = Path("/code/storage/documents")
+DOCUMENT_STORAGE_DIR = settings.document_storage_dir
 DOCUMENT_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
 EXTENSION_TO_TYPE = {

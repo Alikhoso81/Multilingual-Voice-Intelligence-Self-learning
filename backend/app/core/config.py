@@ -1,4 +1,11 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# .../backend  — used to anchor default file-storage paths so the app runs the
+# same whether it's launched from a Docker image (WORKDIR /code) or straight from
+# a local checkout.
+BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
@@ -11,6 +18,19 @@ class Settings(BaseSettings):
 
     PROJECT_NAME: str = "Multilingual Voice Intelligence Platform"
     API_V1_PREFIX: str = "/api/v1"
+
+    # File storage. Defaults to backend/storage/... locally and /code/storage/...
+    # inside the container (both resolve from BACKEND_DIR). Override with the
+    # STORAGE_DIR env var if you want uploads somewhere else.
+    STORAGE_DIR: Path = BACKEND_DIR / "storage"
+
+    @property
+    def audio_storage_dir(self) -> Path:
+        return self.STORAGE_DIR / "audio"
+
+    @property
+    def document_storage_dir(self) -> Path:
+        return self.STORAGE_DIR / "documents"
 
     # Database
     DATABASE_URL: str = (
