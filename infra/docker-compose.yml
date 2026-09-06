@@ -46,8 +46,10 @@ services:
       - ../backend:/code
       - whisper_model_cache:/root/.cache/huggingface
       - vip_audio_storage:/code/storage/audio
+      - vip_document_storage:/code/storage/documents
 
 volumes:
   vip_pg_data:
   whisper_model_cache:
   vip_audio_storage:
+  vip_document_storage:
