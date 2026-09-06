@@ -18,8 +18,8 @@ knowledge before it becomes retrievable.
 | 4 | LLM grounded answer generation + refusal behavior | ✅ verified end-to-end (Gemini + Neon, all 3 languages) |
 | 5 | Intent classification + entity extraction | ✅ verified end-to-end (Gemini) |
 | 6 | TTS voice response | ✅ verified (mock 10/10; real Gemini TTS confirmed) |
-| 7 | Conversation analytics (summary/sentiment/resolution) | ⬜ next |
-| 8 | Question clustering + knowledge-gap detection + learning center | ⬜ |
+| 7 | Conversation analytics (summary/sentiment/resolution) | ✅ verified (mock 19/19) |
+| 8 | Question clustering + knowledge-gap detection + learning center | ⬜ next |
 | 9 | Full admin + agent dashboards | ⬜ |
 | 10 | Security hardening, evaluation harness, deployment, benchmarking | ⬜ |
 
@@ -292,3 +292,26 @@ The assistant reply can now come back as speech.
   (audio_url wiring, valid `RIFF/WAVE` bodies, on-demand synthesis, transcript, 404/401).
 - Real `gemini-2.5-flash-preview-tts` confirmed producing 6–7 s, 24 kHz WAVs for English and
   Roman Urdu replies before the daily quota (above) cut testing short.
+
+## What's in Phase 7 — Conversation analytics
+
+Staff can summarize and assess a whole conversation, feeding the Phase 9 dashboards.
+
+- `app/services/analytics/conversation.py` — one LLM pass over the transcript →
+  `{summary, sentiment, resolution, follow_up}`.
+- `conversations.sentiment` (`positive`/`neutral`/`negative`/`frustrated`), `.resolution`
+  (`resolved`/`unresolved`/`needs_follow_up`/`escalated`), `.follow_up`, `.analyzed_at` —
+  the AI's read, separate from `.status` (the manual open/resolved/escalated workflow).
+- `GET /api/v1/conversations` — staff-only list for the dashboard (summary, sentiment,
+  resolution, follow-up, message count; no message bodies).
+- `PATCH /api/v1/conversations/{id}` — staff set the workflow status.
+- `POST /api/v1/conversations/{id}/analyze` — run analysis; stores the fields and returns
+  them plus a per-intent breakdown of the customer messages.
+
+### Verification status
+
+- ✅ **Verified 2026-09-06** — `scripts/verify_phase7.py` 19/19 with `LLM_PROVIDER=mock`
+  (list + RBAC for `role=user`, status PATCH, `/analyze` persists
+  summary/sentiment/resolution/analyzed_at and returns the intent breakdown, fields then
+  visible on the conversation and the list, 404/401).
+- Real-Gemini pass pending billing (see the quota note above).
