@@ -19,8 +19,8 @@ knowledge before it becomes retrievable.
 | 5 | Intent classification + entity extraction | ✅ verified end-to-end (Gemini) |
 | 6 | TTS voice response | ✅ verified (mock 10/10; real Gemini TTS confirmed) |
 | 7 | Conversation analytics (summary/sentiment/resolution) | ✅ verified (mock 19/19) |
-| 8 | Question clustering + knowledge-gap detection + learning center | ⬜ next |
-| 9 | Full admin + agent dashboards | ⬜ |
+| 8 | Question clustering + knowledge-gap detection + learning center | ✅ verified (real embeddings, 19/19) |
+| 9 | Full admin + agent dashboards | ⬜ next |
 | 10 | Security hardening, evaluation harness, deployment, benchmarking | ⬜ |
 
 ## Run it
@@ -315,3 +315,28 @@ Staff can summarize and assess a whole conversation, feeding the Phase 9 dashboa
   summary/sentiment/resolution/analyzed_at and returns the intent breakdown, fields then
   visible on the conversation and the list, 404/401).
 - Real-Gemini pass pending billing (see the quota note above).
+
+## What's in Phase 8 — Self-learning: clustering + knowledge gaps + learning center
+
+The controlled learning loop from the spec — repeated questions surface knowledge gaps,
+admins approve new knowledge, and it becomes retrievable. **No automatic fine-tuning.**
+
+- `app/services/learning/clustering.py` — greedy online clustering over customer-question
+  embeddings (real `multilingual-e5`); centroids update by exact running mean. Each cluster's
+  `is_gap` is set by retrieving its representative question against the KB: a gap is a cluster
+  the knowledge base can't answer above `RAG_CONFIDENCE_THRESHOLD`.
+- `QuestionCluster` / `QuestionClusterMember` tables; `DocumentType.curated` for
+  learning-center answers.
+- Endpoints (`/api/v1/learning/...`): `recluster`, `clusters` (filter `?status=` / `?gap=`),
+  `gaps`, `clusters/{id}` (with member questions), `clusters/{id}/resolve` (admin approves an
+  answer → chunked + embedded → retrievable now, cluster marked addressed),
+  `clusters/{id}/dismiss`.
+
+### Verification status
+
+- ✅ **Verified 2026-09-06** — `scripts/verify_phase8.py` 19/19 with **real embeddings**
+  (LLM mocked). Seeds a KB covering "check balance" but not "international roaming", sends
+  three paraphrases of each: recluster groups them, the roaming cluster is flagged a gap
+  (`top_kb_similarity` ≈ 0.68 < 0.78) and the balance one isn't; an admin resolves the gap
+  with a curated answer that is immediately retrievable and lifts a fresh roaming question
+  above the confidence threshold. Plus dismiss, admin-only RBAC, tenant isolation.
