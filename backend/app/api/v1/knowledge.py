@@ -44,6 +44,11 @@ def upload_document(
     embed -> store) happens synchronously in this request for Phase 3 —
     Phase 8+ moves this to a Celery background job so large documents don't
     block the request. For typical FAQ/policy-doc sizes this is fine for now.
+
+    The parse/chunk/embed work runs *before* any database write and the DB
+    connection is released first: embedding can take minutes on the first call
+    (model download), and a hosted Postgres (e.g. Neon) drops a connection left
+    idle that long — which previously killed the final commit.
     """
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
@@ -56,21 +61,25 @@ def upload_document(
             detail=f"Unsupported file type '{suffix}'. Supported: pdf, docx, txt, csv",
         )
 
+    organization_id = current_user.organization_id
+    uploaded_by = current_user.id
+
     saved_filename = f"{uuid.uuid4()}{suffix}"
     saved_path = DOCUMENT_STORAGE_DIR / saved_filename
     with saved_path.open("wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    document = KnowledgeDocument(
-        organization_id=current_user.organization_id,
-        uploaded_by=current_user.id,
+    # Let go of the connection the auth dependency checked out — nothing below
+    # touches the DB until the write phase, and the embed step can be slow.
+    db.close()
+
+    common = dict(
+        organization_id=organization_id,
+        uploaded_by=uploaded_by,
         filename=file.filename,
         file_path=str(saved_path),
         document_type=document_type,
-        status=DocumentStatus.processing,
     )
-    db.add(document)
-    db.flush()
 
     try:
         raw_text = extract_text(str(saved_path), document_type.value)
@@ -82,30 +91,32 @@ def upload_document(
             raise ValueError("Document produced no chunks after splitting")
 
         vectors = embed_passages_batch(chunks)
-
-        for idx, (chunk_content, vector) in enumerate(zip(chunks, vectors)):
-            db.add(
-                KnowledgeChunk(
-                    document_id=document.id,
-                    organization_id=current_user.organization_id,
-                    chunk_index=idx,
-                    text=chunk_content,
-                    embedding=vector,
-                    chunk_metadata={"source_filename": file.filename},
-                )
-            )
-
-        document.status = DocumentStatus.ready
-        db.commit()
-        db.refresh(document)
-
     except Exception as exc:
-        db.rollback()
-        document.status = DocumentStatus.failed
-        document.error_message = str(exc)
+        document = KnowledgeDocument(
+            **common, status=DocumentStatus.failed, error_message=str(exc)[:2000]
+        )
         db.add(document)
         db.commit()
         db.refresh(document)
+        return _to_document_out(db, document)
+
+    # Single short transaction: document + all chunks + ready status.
+    document = KnowledgeDocument(**common, status=DocumentStatus.ready)
+    db.add(document)
+    db.flush()
+    for idx, (chunk_content, vector) in enumerate(zip(chunks, vectors)):
+        db.add(
+            KnowledgeChunk(
+                document_id=document.id,
+                organization_id=organization_id,
+                chunk_index=idx,
+                text=chunk_content,
+                embedding=vector,
+                chunk_metadata={"source_filename": file.filename},
+            )
+        )
+    db.commit()
+    db.refresh(document)
 
     return _to_document_out(db, document)
 
