@@ -22,6 +22,7 @@ class MessageOut(BaseModel):
     intent: MessageIntent | None
     intent_confidence: float | None
     entities: dict = {}
+    audio_url: str | None = None
     created_at: datetime
 
     class Config:
@@ -60,6 +61,7 @@ class AssistantMessageOut(BaseModel):
     provider: str
     model: str | None
     top_similarity: float
+    audio_url: str | None = None
     sources: list[MessageSourceOut] = []
 
 

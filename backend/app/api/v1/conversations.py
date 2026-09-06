@@ -3,6 +3,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -24,6 +25,7 @@ from app.services.llm.answering import GroundedAnswer, generate_grounded_answer
 from app.services.nlu.intent import IntentResult, classify_message
 from app.services.speech.language_utils import detect_language, normalize_text
 from app.services.speech.whisper_service import transcribe_audio
+from app.services.tts.synthesis import synthesize_reply
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
@@ -53,8 +55,56 @@ def get_conversation(
     conversation_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> Conversation:
-    return _get_owned_conversation(db, conversation_id, current_user)
+) -> ConversationOut:
+    conversation = _get_owned_conversation(db, conversation_id, current_user)
+    messages = []
+    for m in conversation.messages:
+        out = MessageOut.model_validate(m)
+        if m.voice_recording is not None:
+            out.audio_url = _audio_url(conversation.id, m.id)
+        messages.append(out)
+    return ConversationOut(
+        id=conversation.id,
+        channel=conversation.channel,
+        status=conversation.status,
+        summary=conversation.summary,
+        messages=messages,
+    )
+
+
+@router.get("/{conversation_id}/messages/{message_id}/audio")
+def get_message_audio(
+    conversation_id: uuid.UUID,
+    message_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> FileResponse:
+    """Return the WAV for a message. Customer voice messages return the uploaded
+    file; assistant replies are synthesized on first request and cached."""
+    conversation = _get_owned_conversation(db, conversation_id, current_user)
+    message = (
+        db.query(Message)
+        .filter(Message.id == message_id, Message.conversation_id == conversation.id)
+        .first()
+    )
+    if message is None:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    if message.voice_recording is not None and Path(message.voice_recording.audio_path).exists():
+        return FileResponse(message.voice_recording.audio_path, media_type="audio/wav")
+
+    if message.role != MessageRole.system or not (message.raw_text or "").strip():
+        raise HTTPException(status_code=404, detail="No audio available for this message")
+
+    synthesized = synthesize_reply(message.raw_text, message.language)
+    if synthesized is None:
+        raise HTTPException(status_code=503, detail="Speech synthesis is unavailable")
+    path, duration = synthesized
+    db.add(
+        VoiceRecording(message_id=message.id, audio_path=str(path), duration_seconds=duration)
+    )
+    db.commit()
+    return FileResponse(str(path), media_type="audio/wav")
 
 
 @router.post(
@@ -87,7 +137,35 @@ def send_text_message(
     customer_message = _new_customer_message(
         conv_id, raw_text=payload.text, normalized=normalized, language=language, nlu=nlu
     )
-    return _persist_exchange(db, conv_id, customer_message, answer)
+    return _persist_exchange(db, conv_id, customer_message, answer)  # text in -> text out
+
+
+@router.post(
+    "/{conversation_id}/messages/text/spoken",
+    response_model=MessageExchangeOut,
+    status_code=201,
+)
+def send_text_message_spoken(
+    conversation_id: uuid.UUID,
+    payload: TextMessageCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MessageExchangeOut:
+    """Same as /messages/text but also synthesizes the assistant reply to speech."""
+    conv_id, org_id = _owned_conversation_ids(db, conversation_id, current_user)
+
+    language = detect_language(payload.text)
+    normalized = normalize_text(payload.text, language)
+    query_text = normalized or payload.text
+
+    nlu = classify_message(query_text, language)
+    answer = generate_grounded_answer(db, org_id, query_text, language)
+    tts = synthesize_reply(answer.text, answer.language)
+
+    customer_message = _new_customer_message(
+        conv_id, raw_text=payload.text, normalized=normalized, language=language, nlu=nlu
+    )
+    return _persist_exchange(db, conv_id, customer_message, answer, tts=tts)
 
 
 @router.post(
@@ -134,6 +212,12 @@ async def send_voice_message(
 
     nlu = classify_message(query_text, language)
     answer = generate_grounded_answer(db, org_id, query_text, language)
+    # voice in -> voice out (unless disabled)
+    tts = (
+        synthesize_reply(answer.text, answer.language)
+        if settings.TTS_AUTOSPEAK_VOICE_REPLIES
+        else None
+    )
 
     customer_message = _new_customer_message(
         conv_id,
@@ -152,7 +236,7 @@ async def send_voice_message(
             duration_seconds=result.duration_seconds,
         )
     )
-    return _persist_exchange(db, conv_id, customer_message, answer, already_added=True)
+    return _persist_exchange(db, conv_id, customer_message, answer, tts=tts, already_added=True)
 
 
 def _new_customer_message(
@@ -183,6 +267,7 @@ def _persist_exchange(
     customer_message: Message,
     answer: GroundedAnswer,
     *,
+    tts: tuple[Path, float] | None = None,
     already_added: bool = False,
 ) -> MessageExchangeOut:
     if not already_added:
@@ -207,12 +292,25 @@ def _persist_exchange(
                 rank=rank,
             )
         )
+    if tts is not None:
+        audio_path, audio_duration = tts
+        db.add(
+            VoiceRecording(
+                message_id=assistant_message.id,
+                audio_path=str(audio_path),
+                duration_seconds=audio_duration,
+            )
+        )
     db.commit()
     db.refresh(customer_message)
     db.refresh(assistant_message)
 
+    customer_out = MessageOut.model_validate(customer_message)
+    if customer_message.voice_recording is not None:
+        customer_out.audio_url = _audio_url(conversation_id, customer_message.id)
+
     return MessageExchangeOut(
-        customer_message=MessageOut.model_validate(customer_message),
+        customer_message=customer_out,
         assistant_message=AssistantMessageOut(
             id=assistant_message.id,
             role=assistant_message.role,
@@ -224,6 +322,7 @@ def _persist_exchange(
             provider=answer.provider,
             model=answer.model,
             top_similarity=answer.top_similarity,
+            audio_url=_audio_url(conversation_id, assistant_message.id) if tts else None,
             sources=[
                 MessageSourceOut(
                     chunk_id=s.chunk_id, document_id=s.document_id, similarity=s.similarity
@@ -231,6 +330,13 @@ def _persist_exchange(
                 for s in answer.sources
             ],
         ),
+    )
+
+
+def _audio_url(conversation_id: uuid.UUID, message_id: uuid.UUID) -> str:
+    return (
+        f"{settings.API_V1_PREFIX}/conversations/{conversation_id}"
+        f"/messages/{message_id}/audio"
     )
 
 
