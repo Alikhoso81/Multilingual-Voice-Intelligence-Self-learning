@@ -14,7 +14,7 @@ knowledge before it becomes retrievable.
 |---|---|---|
 | 1 | Backend + DB + auth skeleton | ✅ done |
 | 2 | Voice→text + language detection/normalization | ✅ code done (voice upload not yet user-tested) |
-| 3 | Document ingestion + pgvector + RAG retrieval | ✅ code done — see "Running Phase 3" below |
+| 3 | Document ingestion + pgvector + RAG retrieval | ✅ verified end-to-end (Neon + real embeddings) |
 | 4 | LLM grounded answer generation + refusal behavior | ⬜ next |
 | 5 | Intent classification + entity extraction | ⬜ |
 | 6 | TTS voice response | ⬜ |
@@ -25,35 +25,42 @@ knowledge before it becomes retrievable.
 
 ## Run it
 
+Two supported ways. **Local + hosted Postgres** is the current dev setup (no local
+database or Docker needed); **Docker** brings everything up in containers.
+
+### Option A — local backend + Neon (hosted Postgres + pgvector)
+
 ```bash
 cd backend
-cp .env.example .env        # then edit .env: set a real SECRET_KEY (and ANTHROPIC_API_KEY from Phase 4)
-cd ../infra
-docker compose up --build
+cp .env.example .env
+#   edit .env:
+#   - DATABASE_URL = your Neon connection string, with the driver prefixed:
+#       postgresql+psycopg2://<user>:<pass>@<host>.neon.tech/neondb?sslmode=require
+#   - SECRET_KEY   = python -c "import secrets; print(secrets.token_urlsafe(48))"
+
+uv venv --python 3.11 .venv          # uv installs Python 3.11 if needed
+uv pip install --python .venv -r requirements.txt
+
+.venv/Scripts/alembic upgrade head   # create the schema on Neon (Linux/mac: .venv/bin/alembic)
+.venv/Scripts/uvicorn app.main:app --reload --port 8000
 ```
 
-Backend: http://localhost:8000 · Interactive API docs: http://localhost:8000/docs
+Free Neon project: https://neon.tech → new project → copy the connection string.
+`pgvector` is available there; the migration runs `CREATE EXTENSION vector` itself.
 
-## Run migrations
-
-Once containers are up, in a second terminal:
-
-```bash
-docker exec -it vip_backend bash
-alembic upgrade head          # applies the committed migration(s) — no autogenerate needed
-exit
-```
-
-The repo ships a single consolidated init migration covering the whole schema through
-Phase 3. If your dev database was created by an **older** migration and `alembic upgrade
-head` complains about a missing/!mismatched revision, reset the volume (dev data is
-disposable):
+### Option B — Docker
 
 ```bash
-docker compose down -v        # drops the Postgres volume — also fixes leftover ENUM types
-docker compose up --build
+cd backend && cp .env.example .env      # set SECRET_KEY; DATABASE_URL is overridden by compose
+cd ../infra && docker compose up --build
 docker exec -it vip_backend bash -c "alembic upgrade head"
 ```
+
+If an **older** migration already created the dev database and `alembic upgrade head`
+complains about a missing revision (or a leftover ENUM type), reset the volume —
+dev data is disposable: `docker compose down -v && docker compose up --build`.
+
+Backend: http://localhost:8000 · Interactive API docs: http://localhost:8000/docs
 
 ## Try it
 
@@ -135,31 +142,34 @@ New endpoints:
 
 ### Running Phase 3
 
+Start the server (see "Run it" above), then either poke it by hand at
+http://localhost:8000/docs, or run the automated check:
+
 ```bash
-cd infra
-docker compose down -v          # only if you have an old dev DB — see "Run migrations"
-docker compose up --build
-# second terminal:
-docker exec -it vip_backend bash -c "alembic upgrade head"
+cd backend
+.venv/Scripts/uvicorn app.main:app --port 8000        # terminal 1
+.venv/Scripts/python scripts/verify_phase3.py         # terminal 2  (VIP_BASE_URL to override host)
 ```
 
-Then at http://localhost:8000/docs (log in first — reuse the Phase 1 flow to get a Bearer
-token for an **admin** user):
+`scripts/verify_phase3.py` exercises the full matrix: upload → parse → chunk → embed →
+store → list → semantic search → delete, plus RBAC (agent gets 403), auth (401 with no
+token), input validation (415/400 for a `.png`), cross-tenant isolation (org B can't see
+or retrieve org A's documents), and cascade delete (chunks go with the document).
 
-1. `POST /api/v1/knowledge/documents` — upload a small `.txt` or `.pdf` (e.g. an FAQ).
-   First upload downloads the ~2.2 GB embedding model — expect several minutes once.
-2. `GET /api/v1/knowledge/documents` — confirm `status: "ready"` and `chunk_count > 0`.
-3. `POST /api/v1/knowledge/search` with `{"query": "<something from your doc>", "top_k": 5}`
-   — you should get chunks back ranked by `similarity`.
+The first upload downloads `multilingual-e5-large` (~2.2 GB) — one time, then cached under
+`~/.cache/huggingface`.
 
 ### Verification status
 
-- Built and unit-tested by Claude (chat) in a sandbox with the embedding model **mocked**:
-  parsing (TXT/CSV/DOCX), chunking, cosine ranking, and the full HTTP flow (upload → store →
-  list → search, RBAC 403 for non-admins, 400 for unsupported types) all pass.
-- **Not yet run by the user** against a real Postgres + real embedding model. The migration
-  now explicitly enables the `vector` extension (this was missing and would have failed on a
-  fresh pgvector image). Treat Phase 3 as unverified until the steps above pass locally.
+- ✅ **Verified end-to-end on 2026-09-06** against real Postgres (Neon) + the real
+  `multilingual-e5-large` model — `scripts/verify_phase3.py`, 22/22 checks pass
+  (upload → parse → chunk → embed → store → semantic search, plus RBAC, auth,
+  validation, cross-tenant isolation, cascade delete).
+- The migration explicitly enables the `vector` extension (this was missing from the
+  autogenerated file and would have failed on a fresh database).
+- Embedding runs *before* the DB write and the connection is released first — a first
+  upload triggers a multi-minute model download, long enough that a hosted Postgres
+  drops an idle connection and the final commit fails otherwise.
 
 ### Setup notes for Phase 3
 
