@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     def document_storage_dir(self) -> Path:
         return self.STORAGE_DIR / "documents"
 
+    @property
+    def tts_storage_dir(self) -> Path:
+        return self.STORAGE_DIR / "tts"
+
     # Database
     DATABASE_URL: str = (
         "postgresql+psycopg2://vip_user:vip_pass@db:5432/vip_db"
@@ -72,6 +76,14 @@ class Settings(BaseSettings):
 
     ANTHROPIC_API_KEY: str = ""
     ANTHROPIC_MODEL: str = "claude-sonnet-5"
+
+    # --- Text-to-speech (Phase 6) ---
+    # TTS_PROVIDER: google | mock
+    TTS_PROVIDER: str = "google"
+    # Synthesize the assistant reply automatically when the customer sent voice.
+    TTS_AUTOSPEAK_VOICE_REPLIES: bool = True
+    GEMINI_TTS_MODEL: str = "gemini-2.5-flash-preview-tts"
+    TTS_VOICE: str = "Kore"  # a prebuilt Gemini voice name
 
 
 settings = Settings()
