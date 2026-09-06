@@ -2,7 +2,7 @@ import enum
 import uuid
 
 from sqlalchemy import Enum, Float, ForeignKey, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base, TimestampMixin, UUIDMixin
@@ -22,6 +22,20 @@ class DetectedLanguage(str, enum.Enum):
     unknown = "unknown"
 
 
+class MessageIntent(str, enum.Enum):
+    """Coarse support intents (Phase 5). Industry-agnostic on purpose — telecom,
+    banking, e-commerce etc. all map onto these."""
+
+    billing = "billing"                       # charges, invoices, payments, refunds
+    technical_support = "technical_support"    # something not working
+    account_management = "account_management"  # sign-up, cancel, update details, SIM/number
+    complaint = "complaint"                    # dissatisfaction, escalation
+    sales_inquiry = "sales_inquiry"            # pricing, packages, upgrades, availability
+    general_inquiry = "general_inquiry"        # hours, contact info, how-to
+    other = "other"                            # valid message, none of the above
+    unknown = "unknown"                        # classification unavailable / failed
+
+
 class Message(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "messages"
 
@@ -38,6 +52,11 @@ class Message(Base, UUIDMixin, TimestampMixin):
         Enum(DetectedLanguage), default=DetectedLanguage.unknown
     )
     asr_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Phase 5 — NLU on customer messages (null on system/agent messages)
+    intent: Mapped[MessageIntent | None] = mapped_column(Enum(MessageIntent), nullable=True)
+    intent_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    entities: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
 
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
     voice_recording: Mapped["VoiceRecording | None"] = relationship(

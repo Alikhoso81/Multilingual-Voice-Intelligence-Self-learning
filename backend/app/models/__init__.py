@@ -3,6 +3,6 @@ from app.models.organization import Organization  # noqa
 from app.models.user import User, UserRole  # noqa
 from app.models.customer import Customer  # noqa
 from app.models.conversation import Conversation, ConversationStatus, ConversationChannel  # noqa
-from app.models.conversation_message import Message, MessageRole, DetectedLanguage, VoiceRecording  # noqa
+from app.models.conversation_message import Message, MessageRole, DetectedLanguage, MessageIntent, VoiceRecording  # noqa
 from app.models.knowledge import KnowledgeDocument, KnowledgeChunk, DocumentType, DocumentStatus  # noqa
 from app.models.message_source import MessageSource  # noqa
