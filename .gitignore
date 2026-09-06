@@ -16,6 +16,8 @@ env/
 # Local model / data caches (downloaded at runtime, never committed)
 backend/storage/audio/*
 !backend/storage/audio/.gitkeep
+backend/storage/tts/*
+!backend/storage/tts/.gitkeep
 backend/storage/documents/*
 !backend/storage/documents/.gitkeep
 *.pt
