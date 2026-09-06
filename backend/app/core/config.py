@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     # multilingual-e5-large; Phase 10's eval harness should calibrate it on real data.
     RAG_CONFIDENCE_THRESHOLD: float = 0.78
 
+    # --- Question clustering (Phase 8) ---
+    # Cosine similarity for two customer questions to land in the same cluster.
+    CLUSTER_SIMILARITY_THRESHOLD: float = 0.86
+
     # --- LLM answer generation (Phase 4) ---
     # Which provider actually generates the grounded answer:
     #   "google"    -> Gemini      (GOOGLE_API_KEY, GEMINI_MODEL)

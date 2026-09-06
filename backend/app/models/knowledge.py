@@ -18,6 +18,7 @@ class DocumentType(str, enum.Enum):
     docx = "docx"
     txt = "txt"
     csv = "csv"
+    curated = "curated"  # admin-authored answer from the Phase 8 learning center
 
 
 class DocumentStatus(str, enum.Enum):

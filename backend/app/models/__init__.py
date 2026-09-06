@@ -12,3 +12,4 @@ from app.models.conversation import (  # noqa
 from app.models.conversation_message import Message, MessageRole, DetectedLanguage, MessageIntent, VoiceRecording  # noqa
 from app.models.knowledge import KnowledgeDocument, KnowledgeChunk, DocumentType, DocumentStatus  # noqa
 from app.models.message_source import MessageSource  # noqa
+from app.models.learning import QuestionCluster, QuestionClusterMember, ClusterStatus  # noqa
