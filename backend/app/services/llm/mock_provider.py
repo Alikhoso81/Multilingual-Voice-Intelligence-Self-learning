@@ -1,0 +1,37 @@
+"""Deterministic offline provider for tests and no-key development.
+
+It doesn't call any model — it stitches a short answer out of the context it was
+handed, so the full retrieve -> ground -> answer -> cite-sources pipeline can be
+exercised end to end without an API key or network access.
+"""
+from __future__ import annotations
+
+from app.services.llm.base import LLMProvider, LLMResult
+
+_CONTEXT_MARKER = "CONTEXT:"
+_QUESTION_MARKER = "CUSTOMER MESSAGE"
+
+
+class MockProvider(LLMProvider):
+    name = "mock"
+
+    def generate(self, *, system: str, user: str) -> LLMResult:
+        context = user
+        if _CONTEXT_MARKER in user:
+            context = user.split(_CONTEXT_MARKER, 1)[1]
+        if _QUESTION_MARKER in context:
+            context = context.split(_QUESTION_MARKER, 1)[0]
+
+        snippet = ""
+        for line in context.splitlines():
+            line = line.strip().lstrip("[]0123456789 ").strip()
+            if len(line) > 40:
+                snippet = line
+                break
+
+        return LLMResult(
+            text=f"[mock] According to the company documents: {snippet}"
+            if snippet
+            else "[mock] The company documents cover this — please see the cited sections.",
+            model="mock",
+        )

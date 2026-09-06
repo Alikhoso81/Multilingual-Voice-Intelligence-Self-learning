@@ -14,3 +14,4 @@ faster-whisper==1.0.3
 pypdf==4.3.1
 python-docx==1.1.2
 sentence-transformers==3.1.1
+google-genai==1.44.0

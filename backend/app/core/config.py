@@ -48,5 +48,30 @@ class Settings(BaseSettings):
 
     ENV: str = "development"
 
+    # --- RAG retrieval (Phase 3/4) ---
+    EMBEDDING_MODEL_NAME: str = "intfloat/multilingual-e5-large"
+    RAG_TOP_K: int = 5
+    # Best-match cosine similarity (0..1) required before the LLM is allowed to
+    # answer. Below this the system refuses and offers a human handoff instead of
+    # guessing — a hard requirement from the spec (no hallucinated answers).
+    # 0.78 separates a real match (~0.80+) from unrelated text (~0.74) for
+    # multilingual-e5-large; Phase 10's eval harness should calibrate it on real data.
+    RAG_CONFIDENCE_THRESHOLD: float = 0.78
+
+    # --- LLM answer generation (Phase 4) ---
+    # Which provider actually generates the grounded answer:
+    #   "google"    -> Gemini      (GOOGLE_API_KEY, GEMINI_MODEL)
+    #   "anthropic" -> Claude      (ANTHROPIC_API_KEY, ANTHROPIC_MODEL)
+    #   "mock"      -> canned reply, no network — for tests / offline dev
+    LLM_PROVIDER: str = "google"
+    LLM_MAX_OUTPUT_TOKENS: int = 1024
+    LLM_TEMPERATURE: float = 0.2
+
+    GOOGLE_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+
+    ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_MODEL: str = "claude-sonnet-5"
+
 
 settings = Settings()
