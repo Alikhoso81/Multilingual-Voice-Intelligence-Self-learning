@@ -15,7 +15,7 @@ knowledge before it becomes retrievable.
 | 1 | Backend + DB + auth skeleton | ✅ done |
 | 2 | Voice→text + language detection/normalization | ✅ code done (voice upload not yet user-tested) |
 | 3 | Document ingestion + pgvector + RAG retrieval | ✅ verified end-to-end (Neon + real embeddings) |
-| 4 | LLM grounded answer generation + refusal behavior | ✅ pipeline verified (mock provider); pending a real API-key run |
+| 4 | LLM grounded answer generation + refusal behavior | ✅ verified end-to-end (Gemini + Neon, all 3 languages) |
 | 5 | Intent classification + entity extraction | ⬜ next |
 | 6 | TTS voice response | ⬜ |
 | 7 | Conversation analytics (summary/sentiment/resolution) | ⬜ |
@@ -229,10 +229,10 @@ instead: `uv pip install --python .venv anthropic`, then set `LLM_PROVIDER=anthr
 
 ### Verification status
 
-- ✅ Pipeline verified 2026-09-06 with `LLM_PROVIDER=mock` (no key) —
-  `scripts/verify_phase4.py`, 21/21: in-KB question → `answered=True` grounded in real
-  chunks with `MessageSource` rows persisted; out-of-KB question → `answered=False` +
-  handoff + no sources; language propagates; transcript shows both turns; an org with no
-  documents always gets a handoff; `401` without a token.
-- ⬜ Pending: a run with a real `GOOGLE_API_KEY` to confirm Gemini answer quality and that
-  replies come back in the customer's language.
+- ✅ **Verified end-to-end 2026-09-06** with real Gemini (`gemini-2.5-flash`) + Neon —
+  `scripts/verify_phase4.py` 21/21, and by hand across all three languages:
+  - EN: *"How do I check my balance?"* → *"...dial \*123# from your ACME SIM, or open the ACME app and tap Balance..."* (sim 0.86)
+  - Roman Urdu: *"mera internet package activate kyun nahi ho raha hai?"* → *"Naya data package activate hone mein 15 minute tak lag sakte hain. Yaqeen karein ke aapka balance..."* (sim 0.82)
+  - Urdu: *"میں اپنا نمبر ACME پر کیسے پورٹ کروں؟"* → *"667 پر PORT لکھ کر SMS بھیجیں۔ آپ کا نمبر 48 گھنٹوں میں پورٹ ہو جائے گا۔"* (sim 0.85)
+  - Out of scope: *"Do you sell iPhones on installment?"* → sim 0.73 < 0.78 → human-handoff, LLM not called.
+- Also verified 21/21 with `LLM_PROVIDER=mock` (no key needed — for CI / offline).
