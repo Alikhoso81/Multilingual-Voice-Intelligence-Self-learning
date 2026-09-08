@@ -1,0 +1,27 @@
+# Render.com blueprint. Create a service from repo -> "Blueprint" and point at this file.
+# Postgres: use Neon (free, pgvector) — Render's own free Postgres has no pgvector.
+services:
+  - type: web
+    name: voice-intelligence
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /health
+    plan: standard          # e5-large needs ~2.5 GB RAM per worker; free/starter will OOM
+    envVars:
+      - key: ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false          # Neon: postgresql+psycopg2://USER:PASS@HOST/db?sslmode=require
+      - key: SECRET_KEY
+        generateValue: true
+      - key: LLM_PROVIDER
+        value: google
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: ALLOW_OPEN_REGISTRATION
+        value: "false"
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: ALLOWED_ORIGINS
+        value: '["https://voice-intelligence.onrender.com"]'

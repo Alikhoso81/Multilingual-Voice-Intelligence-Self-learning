@@ -35,6 +35,8 @@ services:
       - ../backend/.env
     environment:
       DATABASE_URL: postgresql+psycopg2://vip_user:vip_pass@db:5432/vip_db
+      ENV: development
+      WEB_CONCURRENCY: 1
     ports:
       - "8000:8000"
     depends_on:
@@ -43,13 +45,14 @@ services:
       redis:
         condition: service_started
     volumes:
-      - ../backend:/code
-      - whisper_model_cache:/root/.cache/huggingface
+      - hf_model_cache:/code/.cache/huggingface
       - vip_audio_storage:/code/storage/audio
       - vip_document_storage:/code/storage/documents
+      - vip_tts_storage:/code/storage/tts
 
 volumes:
   vip_pg_data:
-  whisper_model_cache:
+  hf_model_cache:
   vip_audio_storage:
   vip_document_storage:
+  vip_tts_storage:
