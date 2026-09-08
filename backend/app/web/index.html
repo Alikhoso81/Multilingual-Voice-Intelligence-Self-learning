@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Voice Intelligence — Dashboard</title>
+<style>
+  :root { --bg:#0f172a; --panel:#1e293b; --panel2:#273449; --line:#334155;
+          --text:#e2e8f0; --muted:#94a3b8; --accent:#38bdf8; --good:#34d399;
+          --warn:#fbbf24; --bad:#f87171; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.5 system-ui,Segoe UI,Roboto,sans-serif;
+         background:var(--bg); color:var(--text); }
+  a { color:var(--accent); }
+  button { font:inherit; cursor:pointer; border:1px solid var(--line);
+           background:var(--panel2); color:var(--text); padding:.45rem .8rem;
+           border-radius:6px; }
+  button.primary { background:var(--accent); color:#00131f; border-color:var(--accent); font-weight:600; }
+  button:disabled { opacity:.5; cursor:default; }
+  input, textarea, select { font:inherit; background:var(--panel); color:var(--text);
+           border:1px solid var(--line); border-radius:6px; padding:.5rem; width:100%; }
+  header { display:flex; align-items:center; gap:1rem; padding:.8rem 1.2rem;
+           background:var(--panel); border-bottom:1px solid var(--line); }
+  header h1 { font-size:1rem; margin:0; font-weight:700; }
+  header .sp { flex:1; }
+  nav { display:flex; gap:.3rem; padding:.6rem 1.2rem; background:var(--panel);
+        border-bottom:1px solid var(--line); }
+  nav button.active { background:var(--accent); color:#00131f; border-color:var(--accent); }
+  main { padding:1.2rem; max-width:1100px; margin:0 auto; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:.8rem; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:.9rem 1rem; }
+  .card .v { font-size:1.6rem; font-weight:700; }
+  .card .l { color:var(--muted); font-size:.8rem; text-transform:uppercase; letter-spacing:.04em; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+           padding:1rem 1.1rem; margin-top:1rem; }
+  .panel h2 { margin:.1rem 0 .8rem; font-size:.95rem; }
+  .bar { display:grid; grid-template-columns:150px 1fr 44px; align-items:center; gap:.6rem; margin:.3rem 0; }
+  .bar .track { background:var(--panel2); border-radius:5px; height:16px; overflow:hidden; }
+  .bar .fill { background:var(--accent); height:100%; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:.5rem .6rem; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; font-size:.8rem; }
+  tr.clk { cursor:pointer; } tr.clk:hover td { background:var(--panel2); }
+  .pill { display:inline-block; padding:.1rem .5rem; border-radius:999px; font-size:.75rem;
+          border:1px solid var(--line); }
+  .pill.good { color:var(--good); border-color:var(--good); }
+  .pill.warn { color:var(--warn); border-color:var(--warn); }
+  .pill.bad { color:var(--bad); border-color:var(--bad); }
+  .msg { margin:.5rem 0; } .msg .who { color:var(--muted); font-size:.78rem; }
+  .msg.customer .who { color:var(--accent); }
+  .row { display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; }
+  .muted { color:var(--muted); }
+  #login { max-width:340px; margin:8vh auto; }
+  #login .panel > * { margin-top:.6rem; }
+  .err { color:var(--bad); min-height:1.2em; }
+  dialog { background:var(--panel); color:var(--text); border:1px solid var(--line);
+           border-radius:12px; max-width:640px; width:92%; }
+  dialog::backdrop { background:rgba(0,0,0,.6); }
+</style>
+</head>
+<body>
+
+<div id="login">
+  <div class="panel">
+    <h2>Sign in</h2>
+    <input id="li-email" type="email" placeholder="email" autocomplete="username" />
+    <input id="li-pass" type="password" placeholder="password" autocomplete="current-password" />
+    <button class="primary" style="width:100%" onclick="login()">Sign in</button>
+    <div class="err" id="li-err"></div>
+    <div class="muted" style="font-size:.8rem">Admin or agent account. Create one via
+      <code>/docs</code> if you don't have one yet.</div>
+  </div>
+</div>
+
+<div id="app" hidden>
+  <header>
+    <h1>🎙️ Voice Intelligence</h1>
+    <span class="muted" id="whoami"></span>
+    <span class="sp"></span>
+    <button onclick="logout()">Sign out</button>
+  </header>
+  <nav id="nav"></nav>
+  <main id="view"></main>
+</div>
+
+<dialog id="dlg"><div id="dlg-body"></div>
+  <div class="row" style="justify-content:flex-end;margin-top:1rem">
+    <button onclick="document.getElementById('dlg').close()">Close</button>
+  </div>
+</dialog>
+
+<script>
+const API = "/api/v1";
+let token = localStorage.getItem("vi_token") || "";
+let role = localStorage.getItem("vi_role") || "";
+let tab = "overview";
+
+async function api(path, opts = {}) {
+  const res = await fetch(API + path, {
+    ...opts,
+    headers: { "Content-Type": "application/json", ...(opts.headers || {}),
+               ...(token ? { Authorization: "Bearer " + token } : {}) },
+  });
+  if (res.status === 401) { logout(); throw new Error("session expired"); }
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+  return res.status === 204 ? null : res.json();
+}
+
+async function login() {
+  const err = document.getElementById("li-err"); err.textContent = "";
+  try {
+    const body = new URLSearchParams({
+      username: document.getElementById("li-email").value.trim(),
+      password: document.getElementById("li-pass").value,
+    });
+    const res = await fetch(API + "/auth/login", { method: "POST", body });
+    if (!res.ok) throw new Error("Incorrect email or password");
+    const data = await res.json();
+    token = data.access_token;
+    // decode role from the JWT payload (no verification needed client-side)
+    role = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))).role;
+    localStorage.setItem("vi_token", token); localStorage.setItem("vi_role", role);
+    start();
+  } catch (e) { err.textContent = e.message; }
+}
+function logout() {
+  token = ""; role = ""; localStorage.removeItem("vi_token"); localStorage.removeItem("vi_role");
+  document.getElementById("app").hidden = true;
+  document.getElementById("login").hidden = false;
+}
+
+function start() {
+  document.getElementById("login").hidden = true;
+  document.getElementById("app").hidden = false;
+  document.getElementById("whoami").textContent = role;
+  const tabs = ["overview", "conversations"];
+  if (role === "admin") tabs.push("learning", "knowledge");
+  document.getElementById("nav").innerHTML = tabs.map(t =>
+    `<button class="${t === tab ? "active" : ""}" onclick="go('${t}')">${t}</button>`).join("");
+  render();
+}
+function go(t) { tab = t; start(); }
+
+const bars = (obj, color) => {
+  const entries = Object.entries(obj || {}).sort((a, b) => b[1] - a[1]);
+  const max = Math.max(1, ...entries.map(e => e[1]));
+  return entries.map(([k, v]) =>
+    `<div class="bar"><span class="muted">${k}</span>
+     <span class="track"><span class="fill" style="width:${(v / max) * 100}%;${color ? "background:" + color : ""}"></span></span>
+     <span>${v}</span></div>`).join("") || `<div class="muted">no data</div>`;
+};
+const esc = s => (s || "").replace(/[<>&]/g, c => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
+const sentPill = s => `<span class="pill ${{ positive: "good", frustrated: "bad", negative: "bad" }[s] || ""}">${s || "—"}</span>`;
+const resPill = r => `<span class="pill ${{ resolved: "good", unresolved: "bad", escalated: "warn", needs_follow_up: "warn" }[r] || ""}">${r || "—"}</span>`;
+
+async function render() {
+  const v = document.getElementById("view");
+  v.innerHTML = "<div class='muted'>Loading…</div>";
+  try {
+    if (tab === "overview") return renderOverview(v);
+    if (tab === "conversations") return renderConversations(v);
+    if (tab === "learning") return renderLearning(v);
+    if (tab === "knowledge") return renderKnowledge(v);
+  } catch (e) { v.innerHTML = `<div class="err">${e.message}</div>`; }
+}
+
+async function renderOverview(v) {
+  const d = await api("/dashboard/overview");
+  v.innerHTML = `
+    <div class="cards">
+      ${card(d.total_conversations, "conversations")}
+      ${card(d.analyzed_conversations, "analyzed")}
+      ${card(d.customer_messages, "customer msgs")}
+      ${card(Math.round((1 - d.deflection_rate) * 100) + "%", "answered from KB")}
+      ${card(d.open_gaps, "open knowledge gaps")}
+      ${card(d.knowledge_documents, "documents")}
+    </div>
+    <div class="panel"><h2>Intents</h2>${bars(d.intent_breakdown)}</div>
+    <div class="panel"><h2>Customer sentiment</h2>${bars(d.sentiment_breakdown, "#fbbf24")}</div>
+    <div class="panel"><h2>Resolution</h2>${bars(d.resolution_breakdown, "#34d399")}</div>
+    <div class="panel"><h2>Languages</h2>${bars(d.language_breakdown, "#a78bfa")}</div>
+    <div class="panel"><h2>Answer vs. handoff</h2>
+      <div class="bar"><span class="muted">answered</span><span class="track">
+        <span class="fill" style="background:var(--good);width:${pct(d.answered_replies, d.assistant_messages)}%"></span></span>
+        <span>${d.answered_replies}</span></div>
+      <div class="bar"><span class="muted">handed off</span><span class="track">
+        <span class="fill" style="background:var(--bad);width:${pct(d.deflected_replies, d.assistant_messages)}%"></span></span>
+        <span>${d.deflected_replies}</span></div>
+    </div>`;
+}
+const card = (v, l) => `<div class="card"><div class="v">${v}</div><div class="l">${l}</div></div>`;
+const pct = (a, b) => b ? Math.round((a / b) * 100) : 0;
+
+async function renderConversations(v) {
+  const rows = await api("/conversations");
+  v.innerHTML = `<div class="panel"><h2>Conversations (${rows.length})</h2>
+    <table><thead><tr><th>started</th><th>channel</th><th>status</th><th>msgs</th>
+      <th>sentiment</th><th>resolution</th><th>summary</th></tr></thead><tbody>
+    ${rows.map(c => `<tr class="clk" onclick="openConv('${c.id}')">
+      <td>${new Date(c.created_at).toLocaleString()}</td><td>${c.channel}</td>
+      <td>${c.status}</td><td>${c.message_count}</td>
+      <td>${sentPill(c.sentiment)}</td><td>${resPill(c.resolution)}</td>
+      <td>${esc(c.summary) || "<span class='muted'>—</span>"}</td></tr>`).join("")}
+    </tbody></table></div>`;
+}
+
+async function openConv(id) {
+  const c = await api("/conversations/" + id);
+  const dlg = document.getElementById("dlg");
+  document.getElementById("dlg-body").innerHTML = `
+    <div class="row"><b>Conversation</b> ${sentPill(c.sentiment)} ${resPill(c.resolution)}
+      <span class="sp" style="flex:1"></span>
+      <button onclick="analyzeConv('${id}')">Re-analyze</button></div>
+    ${c.summary ? `<p class="muted">${esc(c.summary)}</p>` : ""}
+    ${c.follow_up ? `<p><b>Follow-up:</b> ${esc(c.follow_up)}</p>` : ""}
+    <hr style="border-color:var(--line)" />
+    ${c.messages.map(m => `<div class="msg ${m.role}">
+      <div class="who">${m.role === "customer" ? "CUSTOMER" : "ASSISTANT"} · ${m.language}
+        ${m.intent ? "· " + m.intent : ""}
+        ${m.audio_url ? `· <a href="${m.audio_url}" onclick="playAudio(event,'${m.audio_url}')">▶ audio</a>` : ""}</div>
+      <div>${esc(m.raw_text)}</div></div>`).join("")}`;
+  dlg.showModal();
+}
+async function playAudio(ev, url) {
+  ev.preventDefault();
+  const res = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+  new Audio(URL.createObjectURL(await res.blob())).play();
+}
+async function analyzeConv(id) {
+  await api("/conversations/" + id + "/analyze", { method: "POST" });
+  openConv(id); render();
+}
+
+async function renderLearning(v) {
+  const clusters = await api("/learning/clusters");
+  v.innerHTML = `<div class="panel">
+    <div class="row"><h2 style="margin:0">Question clusters (${clusters.length})</h2>
+      <span class="sp" style="flex:1"></span>
+      <button class="primary" onclick="recluster(this)">Run clustering</button></div>
+    <table><thead><tr><th>representative question</th><th>asked</th><th>KB match</th>
+      <th>status</th><th></th></tr></thead><tbody>
+    ${clusters.map(c => `<tr>
+      <td>${esc(c.representative_text)}</td><td>${c.member_count}</td>
+      <td>${c.top_kb_similarity.toFixed(2)} ${c.is_gap ? '<span class="pill bad">GAP</span>' : ""}</td>
+      <td>${c.status}</td>
+      <td class="row">
+        ${c.status === "open" ? `<button onclick="resolveForm('${c.id}','${esc(c.representative_text).replace(/'/g, "")}')">Add answer</button>
+          <button onclick="dismiss('${c.id}')">Dismiss</button>` : ""}
+      </td></tr>`).join("")}
+    </tbody></table></div>`;
+}
+async function recluster(btn) { btn.disabled = true; btn.textContent = "clustering…";
+  const r = await api("/learning/recluster", { method: "POST" });
+  alert(`processed ${r.messages_processed}, +${r.clusters_created} clusters, ${r.open_gaps} open gaps`);
+  render();
+}
+function resolveForm(id, q) {
+  const dlg = document.getElementById("dlg");
+  document.getElementById("dlg-body").innerHTML = `
+    <b>Approve knowledge for:</b><p class="muted">${q}</p>
+    <input id="rf-title" placeholder="short title" value="Answer: ${q.slice(0, 60)}" />
+    <textarea id="rf-ans" rows="6" style="margin-top:.5rem" placeholder="Write the answer customers should get…"></textarea>
+    <div class="row" style="justify-content:flex-end;margin-top:.6rem">
+      <button class="primary" onclick="doResolve('${id}')">Approve & publish</button></div>`;
+  dlg.showModal();
+}
+async function doResolve(id) {
+  await api(`/learning/clusters/${id}/resolve`, { method: "POST", body: JSON.stringify({
+    title: document.getElementById("rf-title").value,
+    answer_text: document.getElementById("rf-ans").value,
+  }) });
+  document.getElementById("dlg").close(); render();
+}
+async function dismiss(id) {
+  if (confirm("Dismiss this cluster?")) { await api(`/learning/clusters/${id}/dismiss`, { method: "POST" }); render(); }
+}
+
+async function renderKnowledge(v) {
+  const docs = await api("/knowledge/documents");
+  v.innerHTML = `<div class="panel">
+    <h2>Documents (${docs.length})</h2>
+    <div class="row"><input type="file" id="kf" accept=".pdf,.docx,.txt,.csv" style="max-width:340px" />
+      <button class="primary" onclick="uploadDoc(this)">Upload</button></div>
+    <table style="margin-top:.8rem"><thead><tr><th>file</th><th>type</th><th>status</th>
+      <th>chunks</th><th></th></tr></thead><tbody>
+    ${docs.map(d => `<tr><td>${esc(d.filename)}</td><td>${d.document_type}</td>
+      <td>${d.status}${d.error_message ? ' <span class="muted">(' + esc(d.error_message).slice(0, 60) + ')</span>' : ""}</td>
+      <td>${d.chunk_count}</td>
+      <td><button onclick="delDoc('${d.id}')">Delete</button></td></tr>`).join("")}
+    </tbody></table></div>`;
+}
+async function uploadDoc(btn) {
+  const f = document.getElementById("kf").files[0];
+  if (!f) return;
+  btn.disabled = true; btn.textContent = "uploading…";
+  const fd = new FormData(); fd.append("file", f);
+  const res = await fetch(API + "/knowledge/documents", { method: "POST",
+    headers: { Authorization: "Bearer " + token }, body: fd });
+  if (!res.ok) alert("upload failed: " + (await res.json()).detail);
+  render();
+}
+async function delDoc(id) {
+  if (confirm("Delete document and its chunks?")) { await api("/knowledge/documents/" + id, { method: "DELETE" }); render(); }
+}
+
+if (token) start();
+</script>
+</body>
+</html>
