@@ -10,7 +10,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.deps import get_current_user, get_db, require_roles
+from app.core.deps import enforce_upload_limit, get_current_user, get_db, require_roles
 from app.models.conversation import Conversation
 from app.models.conversation_message import Message, MessageRole, VoiceRecording
 from app.models.message_source import MessageSource
@@ -283,6 +283,7 @@ async def send_voice_message(
     audio: UploadFile,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _: None = Depends(enforce_upload_limit),
 ) -> MessageExchangeOut:
     """
     Transcribe an audio file with Faster-Whisper, detect language, classify
@@ -406,12 +407,10 @@ def _persist_exchange(
                 duration_seconds=audio_duration,
             )
         )
-    db.commit()
-    db.refresh(customer_message)
-    db.refresh(assistant_message)
+    db.commit()  # id / created_at came from Python-side defaults — no refresh needed
 
     customer_out = MessageOut.model_validate(customer_message)
-    if customer_message.voice_recording is not None:
+    if already_added:  # voice endpoint attached a VoiceRecording to the customer message
         customer_out.audio_url = _audio_url(conversation_id, customer_message.id)
 
     return MessageExchangeOut(
