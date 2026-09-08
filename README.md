@@ -20,8 +20,8 @@ knowledge before it becomes retrievable.
 | 6 | TTS voice response | ✅ verified (mock 10/10; real Gemini TTS confirmed) |
 | 7 | Conversation analytics (summary/sentiment/resolution) | ✅ verified (mock 19/19) |
 | 8 | Question clustering + knowledge-gap detection + learning center | ✅ verified (real embeddings, 19/19) |
-| 9 | Full admin + agent dashboards | ⬜ next |
-| 10 | Security hardening, evaluation harness, deployment, benchmarking | ⬜ |
+| 9 | Full admin + agent dashboards | ✅ verified (mock 16/16) |
+| 10 | Security hardening, evaluation harness, deployment, benchmarking | ⬜ next |
 
 ## Run it
 
@@ -337,6 +337,29 @@ admins approve new knowledge, and it becomes retrievable. **No automatic fine-tu
 - ✅ **Verified 2026-09-06** — `scripts/verify_phase8.py` 19/19 with **real embeddings**
   (LLM mocked). Seeds a KB covering "check balance" but not "international roaming", sends
   three paraphrases of each: recluster groups them, the roaming cluster is flagged a gap
-  (`top_kb_similarity` ≈ 0.68 < 0.78) and the balance one isn't; an admin resolves the gap
-  with a curated answer that is immediately retrievable and lifts a fresh roaming question
-  above the confidence threshold. Plus dismiss, admin-only RBAC, tenant isolation.
+  (`top_kb_similarity` below `GAP_SIMILARITY_THRESHOLD`) and the balance one isn't; an admin
+  resolves the gap with a curated answer that is immediately retrievable and lifts a fresh
+  roaming question above the confidence threshold. Plus dismiss, admin-only RBAC, tenant isolation.
+
+## What's in Phase 9 — Admin + agent dashboard
+
+A single-page dashboard (`backend/app/web/index.html`, vanilla JS, no build step) served at
+**http://localhost:8000/app/**. Sign in with an admin or agent account.
+
+- `GET /api/v1/dashboard/overview` (staff) — one call: conversation counts by status,
+  sentiment + resolution breakdowns, message totals, answered-vs-handoff and deflection rate
+  (answered = an assistant reply that cited ≥1 knowledge chunk), intent + language
+  breakdowns, cluster / open-gap counts, knowledge document + chunk counts.
+- **Overview** tab — stat cards + CSS bar charts.
+- **Conversations** tab — the list, a transcript dialog with inline audio playback and a
+  re-analyze button.
+- **Learning Center** tab (admin) — clusters and gaps, an "approve answer" form that publishes
+  new knowledge, dismiss, and a "run clustering" button.
+- **Knowledge** tab (admin) — document list, upload, delete.
+
+### Verification status
+
+- ✅ **Verified 2026-09-06** — `scripts/verify_phase9.py` 16/16 with `LLM_PROVIDER=mock`:
+  `/dashboard/overview` RBAC (role=user 403, no token 401), metric correctness
+  (answered + deflected == assistant messages, deflection rate 0..1, intent/language
+  breakdowns, cluster + gap counts), and the dashboard page serves as HTML.
