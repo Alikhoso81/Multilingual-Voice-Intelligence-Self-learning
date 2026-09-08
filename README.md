@@ -21,7 +21,11 @@ knowledge before it becomes retrievable.
 | 7 | Conversation analytics (summary/sentiment/resolution) | ✅ verified (mock 19/19) |
 | 8 | Question clustering + knowledge-gap detection + learning center | ✅ verified (real embeddings, 19/19) |
 | 9 | Full admin + agent dashboards | ✅ verified (mock 16/16) |
-| 10 | Security hardening, evaluation harness, deployment, benchmarking | ⬜ next |
+| 10 | Security hardening, evaluation harness, deployment, benchmarking | ✅ verified (security 12/12, eval + benchmark green) |
+
+**All 10 phases built and verified.** Phases 4, 5, and 7 have also been run against real
+Gemini; the rest verify with `LLM_PROVIDER=mock` (deterministic, no API quota) and use the
+**real embedding model**.
 
 ## Run it
 
@@ -363,3 +367,27 @@ A single-page dashboard (`backend/app/web/index.html`, vanilla JS, no build step
   `/dashboard/overview` RBAC (role=user 403, no token 401), metric correctness
   (answered + deflected == assistant messages, deflection rate 0..1, intent/language
   breakdowns, cluster + gap counts), and the dashboard page serves as HTML.
+
+## What's in Phase 10 — Hardening, evaluation, deployment, benchmarking
+
+**Security** (`app/core/middleware.py`, verified by `scripts/verify_phase10.py` 12/12):
+per-IP rate limiting (429 + `Retry-After`, tighter on `/auth/*`), response hardening
+headers (nosniff / `X-Frame-Options` / Referrer-Policy / Permissions-Policy / HSTS in prod),
+`POST /auth/refresh`, a `MAX_UPLOAD_MB` cap (413), `ALLOW_OPEN_REGISTRATION=false` to gate
+org/user creation behind an admin token, and a boot-time refusal to run in production with the
+default `SECRET_KEY`.
+
+**Evaluation** (`eval/`, `LLM_PROVIDER=mock` → `eval/report.json`): 15 labelled questions
+across all three languages scoring language detection (**15/15**), the no-hallucination
+refusal guarantee (**13/15** — two documented cross-lingual / similarity-floor edge cases),
+retrieval (**14/15**), and intent (real LLM only). The harness found and fixed a Roman Urdu
+detector bug (`"the"` was a marker → English misread as mixed).
+
+**Benchmark** (`scripts/benchmark.py`): per-stage latency — language detection <1 ms, embed
+~0.2 s (e5-large, CPU), end-to-end `POST /messages/text` ~2.3 s p50 with mock providers
+(cross-region DB round-trips dominate; add ~1–3 s for a real Gemini call).
+
+**Deployment**: production `Dockerfile` (non-root, gunicorn+uvicorn workers, healthcheck,
+auto-migrate), refreshed `docker-compose`, `infra/render.yaml` blueprint,
+`scripts/create_admin.py` to seed the first admin, and `DEPLOY.md` (Docker / PaaS + Neon,
+the ~2.5 GB RAM requirement, e5-small fallback, production checklist).
