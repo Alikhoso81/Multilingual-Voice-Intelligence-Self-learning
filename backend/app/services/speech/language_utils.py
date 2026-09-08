@@ -19,15 +19,36 @@ import re
 
 from app.models.conversation_message import DetectedLanguage
 
-# Common Roman Urdu function words / markers. Not exhaustive by design —
-# this only needs to catch ENOUGH signal to distinguish Roman Urdu from English,
-# not to be a full language model.
+# Common Roman Urdu function words / markers. Real Pakistani speech borrows a lot
+# of English nouns ("package", "balance", "SIM"), so the list leans on function
+# words — verbs, pronouns, postpositions, question words — that rarely appear in
+# English. Deliberately excludes English-colliding tokens like "the"/"is"/"to".
 ROMAN_URDU_MARKERS = {
-    "hai", "hain", "ho", "hoon", "tha", "thi", "the", "kyun", "kyu", "kya",
-    "nahi", "nahin", "mera", "meri", "mere", "aap", "tum", "hum", "main",
-    "karo", "kro", "karna", "krna", "raha", "rahi", "rha", "rhi", "abhi",
-    "kab", "kaha", "kahan", "kaise", "kese", "acha", "theek", "bilkul",
-    "shukriya", "please", "plz", "sir", "madam", "bhai", "yaar",
+    # to be / tense
+    "hai", "hain", "hy", "ho", "hoon", "hun", "hoga", "hogi", "hoge",
+    "tha", "thi", "thay", "raha", "rahi", "rahe", "rha", "rhi", "rhe",
+    "hota", "hoti", "hote", "hua", "hui", "hue", "gaya", "gayi", "gaye", "gya",
+    # verbs (do / give / take / can / want / tell)
+    "karo", "kro", "karna", "krna", "karni", "karne", "karun", "karoon", "karwa",
+    "kar", "karain", "karen", "kardo", "krdo",
+    "dena", "dedo", "dedein", "dijiye", "dijiyega", "batao", "bataye", "bataiye",
+    "bataein", "milega", "milegi", "chahiye", "chahye",
+    "sakta", "sakti", "sakte", "lena", "lene", "lagta", "lagti",
+    # pronouns / possessives
+    "mera", "meri", "mere", "mujhe", "mujhy", "mjhe", "hum", "hamara", "humara",
+    "hamari", "humari", "aap", "tum", "tumhara", "tera", "teri", "tere",
+    "apna", "apni", "apne", "kisi", "kis", "koi", "kuch", "kuchh",
+    # question / connective words
+    "kyun", "kyu", "kiun", "kion", "kya", "kia", "kaise", "kese", "kaisay",
+    "kahan", "kahaan", "kab", "jab", "agar", "warna", "phir",
+    "kitna", "kitni", "kitne", "woh", "yeh",
+    # postpositions / particles
+    "se", "ko", "ka", "ki", "ke", "par", "pe", "mein", "tak",
+    "nahi", "nahin", "nai", "nhi", "abhi", "wala", "wali", "wale",
+    # adjectives / misc
+    "acha", "accha", "theek", "thik", "sahi", "bilkul", "zaroori", "zaruri",
+    "tareeqa", "tarika", "tariqa", "kaam", "masla", "shukriya",
+    "meherbani", "plz", "bhai", "yaar",
 }
 
 URDU_SCRIPT_RE = re.compile(r"[\u0600-\u06FF]")
@@ -56,9 +77,9 @@ def detect_language(text: str, whisper_language_hint: str | None = None) -> Dete
     roman_urdu_hits = sum(1 for w in words if w in ROMAN_URDU_MARKERS)
     roman_urdu_ratio = roman_urdu_hits / len(words)
 
-    if roman_urdu_ratio >= 0.35:
+    if roman_urdu_ratio >= 0.30:
         return DetectedLanguage.roman_urdu
-    if 0.08 <= roman_urdu_ratio < 0.35:
+    if 0.15 <= roman_urdu_ratio < 0.30:
         # Some Roman Urdu markers mixed into otherwise-English sentence structure.
         return DetectedLanguage.mixed
 
