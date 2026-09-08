@@ -52,6 +52,19 @@ class Settings(BaseSettings):
 
     ENV: str = "development"
 
+    # --- Security hardening (Phase 10) ---
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_PER_MINUTE: int = 120          # per client IP, across all endpoints
+    AUTH_RATE_LIMIT_PER_MINUTE: int = 10      # tighter cap on /auth/login and /auth/register
+    MAX_UPLOAD_MB: int = 25
+    # When false, POST /organizations and POST /auth/register require an admin token
+    # (set false in production; a first admin is seeded out of band).
+    ALLOW_OPEN_REGISTRATION: bool = True
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENV.lower() in ("production", "prod", "staging")
+
     # --- RAG retrieval (Phase 3/4) ---
     EMBEDDING_MODEL_NAME: str = "intfloat/multilingual-e5-large"
     RAG_TOP_K: int = 5

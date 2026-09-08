@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.deps import get_current_user, get_db, require_roles
+from app.core.deps import enforce_upload_limit, get_current_user, get_db, require_roles
 from app.models.knowledge import (
     DocumentStatus,
     DocumentType,
@@ -38,6 +38,7 @@ def upload_document(
     file: UploadFile,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.admin)),
+    _: None = Depends(enforce_upload_limit),
 ) -> KnowledgeDocument:
     """
     Admin-only: upload a knowledge document. Processing (parse -> chunk ->

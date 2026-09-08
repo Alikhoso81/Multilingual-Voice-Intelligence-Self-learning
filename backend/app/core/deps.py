@@ -1,10 +1,11 @@
 import uuid
 from typing import Generator
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.security import decode_token
 from app.db.session import SessionLocal
 from app.models.user import User, UserRole
@@ -42,6 +43,36 @@ def get_current_user(
     if user is None or not user.is_active:
         raise credentials_exception
     return user
+
+
+def get_optional_user(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> User | None:
+    """Current user if a valid access token is present, else None. Used by
+    endpoints that are open in dev but gated in production."""
+    header = request.headers.get("Authorization", "")
+    if not header.lower().startswith("bearer "):
+        return None
+    payload = decode_token(header[7:])
+    if payload is None or payload.get("type") != "access":
+        return None
+    try:
+        user_id = uuid.UUID(payload.get("sub"))
+    except (TypeError, ValueError):
+        return None
+    user = db.query(User).filter(User.id == user_id).first()
+    return user if user and user.is_active else None
+
+
+def enforce_upload_limit(request: Request) -> None:
+    content_length = request.headers.get("content-length")
+    if content_length and content_length.isdigit():
+        if int(content_length) > settings.MAX_UPLOAD_MB * 1024 * 1024:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"Upload exceeds the {settings.MAX_UPLOAD_MB} MB limit",
+            )
 
 
 def require_roles(*allowed_roles: UserRole):

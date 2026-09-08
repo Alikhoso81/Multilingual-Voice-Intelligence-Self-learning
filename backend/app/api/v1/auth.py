@@ -1,18 +1,37 @@
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db
-from app.core.security import create_token, hash_password, verify_password
+from app.core.config import settings
+from app.core.deps import get_db, get_optional_user
+from app.core.security import create_token, decode_token, hash_password, verify_password
 from app.models.organization import Organization
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.auth import Token, UserCreate, UserOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-def register(payload: UserCreate, db: Session = Depends(get_db)) -> User:
+def register(
+    payload: UserCreate,
+    db: Session = Depends(get_db),
+    caller: User | None = Depends(get_optional_user),
+) -> User:
+    if not settings.ALLOW_OPEN_REGISTRATION:
+        if caller is None or caller.role != UserRole.admin or caller.organization_id != payload.organization_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Open registration is disabled — an org admin must create this user",
+            )
+
     org = db.query(Organization).filter(Organization.id == payload.organization_id).first()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
@@ -47,7 +66,26 @@ def login(
         )
     if not user.is_active:
         raise HTTPException(status_code=403, detail="User is inactive")
+    return _tokens_for(user)
 
-    access_token = create_token(str(user.id), user.role.value, str(user.organization_id), "access")
-    refresh_token = create_token(str(user.id), user.role.value, str(user.organization_id), "refresh")
-    return Token(access_token=access_token, refresh_token=refresh_token)
+
+@router.post("/refresh", response_model=Token)
+def refresh(payload: RefreshRequest, db: Session = Depends(get_db)) -> Token:
+    claims = decode_token(payload.refresh_token)
+    if claims is None or claims.get("type") != "refresh":
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    try:
+        user_id = uuid.UUID(claims.get("sub"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    return _tokens_for(user)
+
+
+def _tokens_for(user: User) -> Token:
+    return Token(
+        access_token=create_token(str(user.id), user.role.value, str(user.organization_id), "access"),
+        refresh_token=create_token(str(user.id), user.role.value, str(user.organization_id), "refresh"),
+    )
