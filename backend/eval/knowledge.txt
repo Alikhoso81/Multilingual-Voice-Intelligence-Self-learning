@@ -1,0 +1,22 @@
+ACME Telecom — Customer FAQ
+
+How do I check my account balance?
+Dial *123# from your ACME SIM, or open the ACME app and tap "Balance" on the home
+screen. Your remaining balance and its expiry date are shown there.
+
+Why is my internet package not activating?
+A new data package can take up to 15 minutes to activate. If it still has not
+activated after that, make sure your account balance covers the package price,
+then restart your phone. If the problem continues, a previous bundle may still be
+active and blocking the new one.
+
+How do I port my number to ACME?
+Send an SMS with the word PORT to 667 from the number you want to bring over. You
+will receive a confirmation code and porting completes within 48 hours.
+
+What are the customer support hours?
+Phone support runs 24/7. Live chat in the ACME app is available 8am to midnight.
+
+How do I recharge my account?
+Buy a scratch card and dial *123*<card number>#, or recharge from the ACME app
+using a debit card or mobile wallet.

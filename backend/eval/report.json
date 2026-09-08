@@ -1,0 +1,329 @@
+{
+  "provider": "mock",
+  "model": "claude-sonnet-5",
+  "rag_confidence_threshold": 0.78,
+  "n_cases": 15,
+  "scores": {
+    "language": 1.0,
+    "refusal": 0.867,
+    "retrieval": 0.933,
+    "intent": null
+  },
+  "cases": [
+    {
+      "question": "How do I check my account balance?",
+      "expected": {
+        "language": "en",
+        "in_kb": true,
+        "intent": "general_inquiry"
+      },
+      "got": {
+        "language": "en",
+        "answered": true,
+        "top_similarity": 0.845,
+        "intent": "general_inquiry",
+        "reason": "answered"
+      },
+      "pass": {
+        "language": true,
+        "refusal": true,
+        "retrieval": true,
+        "intent": null
+      }
+    },
+    {
+      "question": "Why is my new internet package not activating?",
+      "expected": {
+        "language": "en",
+        "in_kb": true,
+        "intent": "technical_support"
+      },
+      "got": {
+        "language": "en",
+        "answered": true,
+        "top_similarity": 0.856,
+        "intent": "general_inquiry",
+        "reason": "answered"
+      },
+      "pass": {
+        "language": true,
+        "refusal": true,
+        "retrieval": true,
+        "intent": null
+      }
+    },
+    {
+      "question": "How do I port my mobile number to ACME?",
+      "expected": {
+        "language": "en",
+        "in_kb": true,
+        "intent": "account_management"
+      },
+      "got": {
+        "language": "en",
+        "answered": true,
+        "top_similarity": 0.895,
+        "intent": "general_inquiry",
+        "reason": "answered"
+      },
+      "pass": {
+        "language": true,
+        "refusal": true,
+        "retrieval": true,
+        "intent": null
+      }
+    },
+    {
+      "question": "What are your customer support hours?",
+      "expected": {
+        "language": "en",
+        "in_kb": true,
+        "intent": "general_inquiry"
+      },
+      "got": {
+        "language": "en",
+        "answered": true,
+        "top_similarity": 0.824,
+        "intent": "general_inquiry",
+        "reason": "answered"
+      },
+      "pass": {
+        "language": true,
+        "refusal": true,
+        "retrieval": true,
+        "intent": null
+      }
+    },
+    {
+      "question": "How can I recharge my account?",
+      "expected": {
+        "language": "en",
+        "in_kb": true,
+        "intent": "general_inquiry"
+      },
+      "got": {
+        "language": "en",
+        "answered": true,
+        "top_similarity": 0.84,
+        "intent": "general_inquiry",
+        "reason": "answered"
+      },
+      "pass": {
+        "language": true,
+        "refusal": true,
+        "retrieval": true,
+        "intent": null
+      }
+    },
+    {
+      "question": "mera account balance kaise check karun?",
+      "expected": {
+        "language": "roman-ur",
+        "in_kb": true,
+        "intent": "general_inquiry"
+      },
+      "got": {
+        "language": "roman-ur",
+        "answered": true,
+        "top_similarity": 0.799,
+        "intent": "general_inquiry",
+        "reason": "answered"
+      },
+      "pass": {
+        "language": true,
+        "refusal": true,
+        "retrieval": true,
+        "intent": null
+      }
+    },
+    {
+      "question": "Mera internet package activate kyun nahi ho raha?",
+      "expected": {
+        "language": "roman-ur",
+        "in_kb": true,
+        "intent": "technical_support"
+      },
+      "got": {
+        "language": "roman-ur",
+        "answered": true,
+        "top_similarity": 0.805,
+        "intent": "general_inquiry",
+        "reason": "answered"
+      },
+      "pass": {
+        "language": true,
+        "refusal": true,
+        "retrieval": true,
+        "intent": null
+      }
+    },
+    {
+      "question": "apna number ACME par port karne ka tareeqa batao",
+      "expected": {
+        "language": "roman-ur",
+        "in_kb": true,
+        "intent": "account_management"
+      },
+      "got": {
+        "language": "roman-ur",
+        "answered": true,
+        "top_similarity": 0.818,
+        "intent": "general_inquiry",
+        "reason": "answered"
+      },
+      "pass": {
+        "language": true,
+        "refusal": true,
+        "retrieval": true,
+        "intent": null
+      }
+    },
+    {
+      "question": "میں اپنا بیلنس کیسے چیک کروں؟",
+      "expected": {
+        "language": "ur",
+        "in_kb": true,
+        "intent": "general_inquiry"
+      },
+      "got": {
+        "language": "ur",
+        "answered": false,
+        "top_similarity": 0.768,
+        "intent": "general_inquiry",
+        "reason": "low_confidence"
+      },
+      "pass": {
+        "language": true,
+        "refusal": false,
+        "retrieval": false,
+        "intent": null
+      }
+    },
+    {
+      "question": "میرا انٹرنیٹ پیکج کیوں فعال نہیں ہو رہا؟",
+      "expected": {
+        "language": "ur",
+        "in_kb": true,
+        "intent": "technical_support"
+      },
+      "got": {
+        "language": "ur",
+        "answered": true,
+        "top_similarity": 0.799,
+        "intent": "general_inquiry",
+        "reason": "answered"
+      },
+      "pass": {
+        "language": true,
+        "refusal": true,
+        "retrieval": true,
+        "intent": null
+      }
+    },
+    {
+      "question": "Do you sell iPhones on monthly installments?",
+      "expected": {
+        "language": "en",
+        "in_kb": false,
+        "intent": "sales_inquiry"
+      },
+      "got": {
+        "language": "en",
+        "answered": false,
+        "top_similarity": 0.743,
+        "intent": "general_inquiry",
+        "reason": "low_confidence"
+      },
+      "pass": {
+        "language": true,
+        "refusal": true,
+        "retrieval": true,
+        "intent": null
+      }
+    },
+    {
+      "question": "What is the name of your company's CEO?",
+      "expected": {
+        "language": "en",
+        "in_kb": false,
+        "intent": "general_inquiry"
+      },
+      "got": {
+        "language": "en",
+        "answered": false,
+        "top_similarity": 0.76,
+        "intent": "general_inquiry",
+        "reason": "low_confidence"
+      },
+      "pass": {
+        "language": true,
+        "refusal": true,
+        "retrieval": true,
+        "intent": null
+      }
+    },
+    {
+      "question": "How do I activate international roaming before travelling abroad?",
+      "expected": {
+        "language": "en",
+        "in_kb": false,
+        "intent": "technical_support"
+      },
+      "got": {
+        "language": "en",
+        "answered": true,
+        "top_similarity": 0.81,
+        "intent": "general_inquiry",
+        "reason": "answered"
+      },
+      "pass": {
+        "language": true,
+        "refusal": false,
+        "retrieval": true,
+        "intent": null
+      }
+    },
+    {
+      "question": "main apni SIM kis branch se replace karwa sakta hoon?",
+      "expected": {
+        "language": "roman-ur",
+        "in_kb": false,
+        "intent": "account_management"
+      },
+      "got": {
+        "language": "roman-ur",
+        "answered": false,
+        "top_similarity": 0.769,
+        "intent": "general_inquiry",
+        "reason": "low_confidence"
+      },
+      "pass": {
+        "language": true,
+        "refusal": true,
+        "retrieval": true,
+        "intent": null
+      }
+    },
+    {
+      "question": "aap ke paas WhatsApp ka koi special package hai kya?",
+      "expected": {
+        "language": "roman-ur",
+        "in_kb": false,
+        "intent": "sales_inquiry"
+      },
+      "got": {
+        "language": "roman-ur",
+        "answered": false,
+        "top_similarity": 0.754,
+        "intent": "general_inquiry",
+        "reason": "low_confidence"
+      },
+      "pass": {
+        "language": true,
+        "refusal": true,
+        "retrieval": true,
+        "intent": null
+      }
+    }
+  ]
+}
