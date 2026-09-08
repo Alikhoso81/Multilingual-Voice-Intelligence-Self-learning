@@ -115,7 +115,7 @@ def recluster_organization(
         cluster.top_kb_similarity = hits[0].similarity if hits else 0.0
         cluster.is_gap = (
             cluster.status == ClusterStatus.open
-            and cluster.top_kb_similarity < settings.RAG_CONFIDENCE_THRESHOLD
+            and cluster.top_kb_similarity < settings.GAP_SIMILARITY_THRESHOLD
         )
 
     db.commit()
