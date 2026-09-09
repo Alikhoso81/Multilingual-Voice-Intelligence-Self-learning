@@ -77,7 +77,9 @@ class Settings(BaseSettings):
 
     # --- Question clustering (Phase 8) ---
     # Cosine similarity for two customer questions to land in the same cluster.
-    CLUSTER_SIMILARITY_THRESHOLD: float = 0.86
+    # multilingual-e5 scores short same-language questions high even when the
+    # topic differs, so this sits near the top of the band (paraphrases ~0.90+).
+    CLUSTER_SIMILARITY_THRESHOLD: float = 0.89
     # A cluster is a knowledge gap when its best KB match is below this. Kept
     # slightly ABOVE RAG_CONFIDENCE_THRESHOLD (surface gaps a little more eagerly
     # than the bot refuses) and clear of multilingual-e5's ~0.78 similarity floor.

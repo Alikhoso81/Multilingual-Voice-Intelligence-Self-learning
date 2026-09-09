@@ -22,7 +22,14 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.conversation import Conversation
 from app.models.conversation_message import Message, MessageRole
+from app.models.conversation_message import DetectedLanguage
 from app.models.learning import ClusterStatus, QuestionCluster, QuestionClusterMember
+from app.services.llm.answering import (
+    ANSWERED,
+    LOW_CONFIDENCE,
+    NO_DOCUMENTS,
+    generate_grounded_answer,
+)
 from app.services.rag.embeddings import embed_query
 from app.services.rag.retrieval import retrieve_relevant_chunks
 
@@ -107,24 +114,62 @@ def recluster_organization(
             touched.add(cluster.id)
             created += 1
 
-    # recompute the knowledge-gap flag for every cluster we touched
-    for cluster in clusters:
-        if cluster.id not in touched:
-            continue
-        hits = retrieve_relevant_chunks(db, organization_id, cluster.representative_text, top_k=1)
-        cluster.top_kb_similarity = hits[0].similarity if hits else 0.0
-        cluster.is_gap = (
-            cluster.status == ClusterStatus.open
-            and cluster.top_kb_similarity < settings.GAP_SIMILARITY_THRESHOLD
-        )
+    db.commit()  # persist the clustering before gap detection (which may roll back)
 
-    db.commit()
+    _recompute_gaps(db, organization_id, touched)
+
     return ClusteringRun(
         messages_processed=len(messages),
         clusters_created=created,
         clusters_updated=len(touched) - created,
         open_gaps=_count_open_gaps(db, organization_id),
     )
+
+
+def _recompute_gaps(db: Session, organization_id: uuid.UUID, cluster_ids: set[uuid.UUID]) -> None:
+    """For each touched cluster, decide whether the KB can answer it.
+
+    multilingual-e5 similarity alone is a weak signal (it rarely drops below
+    ~0.78 even for unrelated text), so a cluster in the ambiguous band is run
+    through the answer pipeline: if the representative question gets refused, the
+    refusal *is* the knowledge gap. Clusters well above / below the band skip the
+    LLM call. Committed per cluster so a mid-batch failure keeps earlier results.
+    """
+    low = settings.GAP_SIMILARITY_THRESHOLD - 0.06
+    high = settings.GAP_SIMILARITY_THRESHOLD + 0.06
+
+    for cluster_id in cluster_ids:
+        cluster = db.get(QuestionCluster, cluster_id)
+        if cluster is None:
+            continue
+
+        hits = retrieve_relevant_chunks(db, organization_id, cluster.representative_text, top_k=1)
+        top_similarity = hits[0].similarity if hits else 0.0
+        db.rollback()
+
+        cluster = db.get(QuestionCluster, cluster_id)
+        cluster.top_kb_similarity = top_similarity
+
+        # the "mock" provider always answers, so the pipeline check is
+        # uninformative there — fall back to the plain similarity rule.
+        use_pipeline = settings.LLM_PROVIDER.lower() != "mock" and low <= top_similarity < high
+
+        if cluster.status != ClusterStatus.open:
+            cluster.is_gap = False
+        elif not use_pipeline:
+            cluster.is_gap = top_similarity < settings.GAP_SIMILARITY_THRESHOLD
+        else:
+            answer = generate_grounded_answer(
+                db, organization_id, cluster.representative_text, DetectedLanguage.english
+            )
+            cluster = db.get(QuestionCluster, cluster_id)
+            cluster.top_kb_similarity = top_similarity
+            if answer.reason == ANSWERED:
+                cluster.is_gap = False
+            elif answer.reason in (LOW_CONFIDENCE, NO_DOCUMENTS):
+                cluster.is_gap = True
+            # provider_error -> leave is_gap unchanged (can't tell)
+        db.commit()
 
 
 def _count_open_gaps(db: Session, organization_id: uuid.UUID) -> int:
