@@ -142,6 +142,12 @@ def generate_grounded_answer(
         logger.warning("answer generation fell back to handoff — provider error: %s", exc)
         return _handoff(language, PROVIDER_ERROR, top_similarity)
 
+    # The retrieved chunk cleared the similarity bar but may still not address the
+    # question — the model is told to say so. If it did, that's a handoff, not an
+    # answer (and, for Phase 8, a real knowledge gap).
+    if _looks_like_refusal(result.text):
+        return _handoff(language, LOW_CONFIDENCE, top_similarity)
+
     return GroundedAnswer(
         text=result.text,
         answered=True,
@@ -152,3 +158,18 @@ def generate_grounded_answer(
         top_similarity=top_similarity,
         sources=chunks,
     )
+
+
+_REFUSAL_MARKERS = (
+    "don't have that information", "do not have that information", "don't have information",
+    "not have that information", "no information about", "not able to answer",
+    "cannot answer", "can't answer", "not covered", "not in our",
+    "contact support", "support representative", "customer support",
+    "nahi mil raha", "maloomat mein nahin", "maloomat mein nahi",
+    "معلومات میں نہیں", "معلومات موجود نہیں", "نمائندے سے",
+)
+
+
+def _looks_like_refusal(text: str) -> bool:
+    low = text.lower()
+    return sum(m in low for m in _REFUSAL_MARKERS) >= 1 and len(text) < 400
