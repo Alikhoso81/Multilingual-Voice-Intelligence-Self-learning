@@ -133,7 +133,7 @@ function start() {
   document.getElementById("login").hidden = true;
   document.getElementById("app").hidden = false;
   document.getElementById("whoami").textContent = role;
-  const tabs = ["overview", "conversations"];
+  const tabs = ["talk", "overview", "conversations"];
   if (role === "admin") tabs.push("learning", "knowledge");
   document.getElementById("nav").innerHTML = tabs.map(t =>
     `<button class="${t === tab ? "active" : ""}" onclick="go('${t}')">${t}</button>`).join("");
@@ -157,12 +157,91 @@ async function render() {
   const v = document.getElementById("view");
   v.innerHTML = "<div class='muted'>Loading…</div>";
   try {
+    if (tab === "talk") return renderTalk(v);
     if (tab === "overview") return renderOverview(v);
     if (tab === "conversations") return renderConversations(v);
     if (tab === "learning") return renderLearning(v);
     if (tab === "knowledge") return renderKnowledge(v);
   } catch (e) { v.innerHTML = `<div class="err">${e.message}</div>`; }
 }
+
+// ---- Talk to the assistant (text or voice) ----
+let talkConv = null;
+let recorder = null, recChunks = [];
+
+async function renderTalk(v) {
+  v.innerHTML = `
+    <div class="panel">
+      <h2>Talk to the assistant</h2>
+      <div class="muted" style="font-size:.85rem;margin-bottom:.6rem">
+        Type or record in English, Urdu, or Roman Urdu. It transcribes, detects the language,
+        searches the knowledge base, and answers in your language — or hands off if it can't.
+      </div>
+      <div id="chat" style="max-height:52vh;overflow:auto;border:1px solid var(--line);
+        border-radius:8px;padding:.8rem;background:var(--bg)"></div>
+      <div class="row" style="margin-top:.6rem">
+        <input id="talk-input" placeholder="Type a message…" style="flex:1"
+          onkeydown="if(event.key==='Enter')talkSend()" />
+        <button class="primary" onclick="talkSend()">Send</button>
+        <button id="mic" onclick="talkMic()">🎤 Record</button>
+      </div>
+      <div class="muted" id="talk-status" style="font-size:.8rem;margin-top:.4rem"></div>
+    </div>`;
+  if (!talkConv) {
+    talkConv = (await api("/conversations", { method: "POST", body: JSON.stringify({ channel: "voice" }) })).id;
+  }
+  loadChat();
+}
+
+async function loadChat() {
+  const c = await api("/conversations/" + talkConv);
+  document.getElementById("chat").innerHTML = c.messages.map(m => `
+    <div class="msg ${m.role}" style="margin:.6rem 0">
+      <div class="who">${m.role === "customer" ? "you" : "assistant"} · ${m.language}${m.intent ? " · " + m.intent : ""}</div>
+      <div>${esc(m.raw_text)}</div>
+      ${m.audio_url ? `<button style="margin-top:.3rem;font-size:.8rem" onclick="playAudio(event,'${m.audio_url}')">▶ play reply</button>` : ""}
+    </div>`).join("") || `<div class="muted">Say hello…</div>`;
+  const box = document.getElementById("chat"); box.scrollTop = box.scrollHeight;
+}
+
+async function talkSend() {
+  const inp = document.getElementById("talk-input");
+  const text = inp.value.trim(); if (!text) return;
+  inp.value = ""; setStatus("thinking…");
+  try {
+    await api(`/conversations/${talkConv}/messages/text/spoken`, { method: "POST", body: JSON.stringify({ text }) });
+    await loadChat(); setStatus("");
+  } catch (e) { setStatus(e.message); }
+}
+
+async function talkMic() {
+  const btn = document.getElementById("mic");
+  if (recorder && recorder.state === "recording") { recorder.stop(); return; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch { return setStatus("microphone permission denied"); }
+  recChunks = [];
+  recorder = new MediaRecorder(stream);
+  recorder.ondataavailable = e => recChunks.push(e.data);
+  recorder.onstop = async () => {
+    stream.getTracks().forEach(t => t.stop());
+    btn.textContent = "🎤 Record"; btn.classList.remove("primary");
+    setStatus("transcribing + answering…");
+    const blob = new Blob(recChunks, { type: recorder.mimeType || "audio/webm" });
+    const fd = new FormData();
+    fd.append("audio", blob, "recording.webm");
+    try {
+      const res = await fetch(API + `/conversations/${talkConv}/messages/voice`, {
+        method: "POST", headers: { Authorization: "Bearer " + token }, body: fd });
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      await loadChat(); setStatus("");
+    } catch (e) { setStatus(e.message); }
+  };
+  recorder.start();
+  btn.textContent = "⏹ Stop"; btn.classList.add("primary");
+  setStatus("recording… click Stop when done");
+}
+function setStatus(s) { document.getElementById("talk-status").textContent = s; }
 
 async function renderOverview(v) {
   const d = await api("/dashboard/overview");
